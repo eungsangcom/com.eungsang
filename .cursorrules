@@ -1,0 +1,9 @@
+# com.ragwatson — Cursor 프로젝트 규칙 (루트)
+
+1. **하네스:** [backend/cursorrules](./backend/cursorrules) 와 [backend/CLAUDE.md](./backend/CLAUDE.md) 를 따릅니다.
+2. **코딩 규칙 (필수):** 코드 작성·수정 전 [docs/README.md](./docs/README.md) 를 보고, 작업 영역에 맞는 `docs/DEVOPS/` 문서를 **반드시** 읽습니다.
+   - Backend → `docs/DEVOPS/Backend/BACKEND_RULES.md`
+   - Frontend → `docs/DEVOPS/Frontend/REACT_RULES.md`
+3. **우선순위:** `docs/DEVOPS/*` > `backend/cursorrules` > 일반 관례.
+
+채팅 시 권장: `@docs/README.md` `@backend/cursorrules` + 해당 DEVOPS 문서.
