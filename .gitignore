@@ -1,0 +1,146 @@
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+.envrc
+.npmrc
+.pypirc
+.netrc
+*.local
+*.secret
+*.secrets
+secrets/
+secret/
+credentials/
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+*.kubeconfig
+
+# Cloud and service credentials
+*credentials*.json
+*service-account*.json
+firebase*.json
+google-services.json
+GoogleService-Info.plist
+.aws/
+.azure/
+.gcloud/
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+.vercel/
+.netlify/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Logs and runtime files
+logs/
+*.log
+*.pid
+*.seed
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Local uploads, cache, and generated data
+uploads/
+tmp/
+temp/
+cache/
+.cache/
+data/private/
+data/local/
+
+# Model artifacts and binary outputs
+*.joblib
+*.pkl
+*.pickle
+models/
+artifacts/
+
+# IDE and editor local state
+.vscode/
+.idea/
+*.code-workspace
+.cursor/
+docs/.obsidian/workspace.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Git internals from nested or copied repositories
+.git/
+
+# 환경 변수·비밀키 (민감 정보)
+.env
+.env.*
+!.env.example
+
+# 로컬·임시 설정
+*.local
+secrets/
+*.pem
+*.key
+
+# 게시판 업로드 이미지 (로컬 저장)
+uploads/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# 도구·IDE
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.idea/
+*.swp
+*.swo

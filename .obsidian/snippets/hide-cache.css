@@ -1,0 +1,4 @@
+div[data-path$="alembic"],
+div[data-path*="__pycache__/"] {
+    display: none !important;
+}

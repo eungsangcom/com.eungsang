@@ -1,0 +1,40 @@
+services:
+
+  # ── FastAPI 백엔드 (8000포트) ─────────────
+  backend:
+    build:
+      context: ./eungsang
+      dockerfile: Dockerfile
+    container_name: eungsang-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./eungsang:/app
+    env_file:
+      - ./eungsang/.env
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── Next.js 프론트엔드 (3000포트) ─────────
+  frontend:
+    build:
+      context: ./jebbi
+      dockerfile: Dockerfile
+    container_name: eungsang-web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./jebbi:/app
+      - /app/node_modules
+    environment:
+      - DOCKER_CONTAINER=1
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
