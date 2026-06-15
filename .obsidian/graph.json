@@ -1,0 +1,37 @@
+{
+  "collapse-filter": false,
+  "search": "",
+  "showTags": false,
+  "showAttachments": false,
+  "hideUnresolved": true,
+  "showOrphans": false,
+  "collapse-color-groups": true,
+  "colorGroups": [
+    {
+      "query": "path:eungsang",
+      "color": {
+        "a": 1,
+        "rgb": 16711680
+      }
+    },
+    {
+      "query": "path:jebbi",
+      "color": {
+        "a": 1,
+        "rgb": 19711
+      }
+    }
+  ],
+  "collapse-display": false,
+  "showArrow": false,
+  "textFadeMultiplier": -3,
+  "nodeSizeMultiplier": 1.73801215277778,
+  "lineSizeMultiplier": 1.11338975694444,
+  "collapse-forces": false,
+  "centerStrength": 0.300217013888889,
+  "repelStrength": 6.92621527777778,
+  "linkStrength": 1,
+  "linkDistance": 250,
+  "scale": 0.8988032109396242,
+  "close": false
+}

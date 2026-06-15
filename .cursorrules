@@ -1,9 +1,30 @@
-# com.ragwatson — Cursor 프로젝트 규칙 (루트)
+# com.ragwatson — Cursor 규칙 (루트)
 
-1. **하네스:** [backend/cursorrules](./backend/cursorrules) 와 [backend/CLAUDE.md](./backend/CLAUDE.md) 를 따릅니다.
-2. **코딩 규칙 (필수):** 코드 작성·수정 전 [docs/README.md](./docs/README.md) 를 보고, 작업 영역에 맞는 `docs/DEVOPS/` 문서를 **반드시** 읽습니다.
-   - Backend → `docs/DEVOPS/Backend/BACKEND_RULES.md`
-   - Frontend → `docs/DEVOPS/Frontend/REACT_RULES.md`
-3. **우선순위:** `docs/DEVOPS/*` > `backend/cursorrules` > 일반 관례.
+코드 작성·수정 전 **반드시** 아래를 읽는다.
 
-채팅 시 권장: `@docs/README.md` `@backend/cursorrules` + 해당 DEVOPS 문서.
+## 필수 링크
+
+1. **에이전트 하네스:** [AGENTS.md](./AGENTS.md)
+2. **모노레포 LLM 지침:** [CLAUDE.md](./CLAUDE.md)
+3. **DEVOPS 인덱스:** [vault/README.md](./vault/README.md)
+
+## 작업 범위별 하위 규칙
+
+| 작업 위치 | `.cursorrules` | `CLAUDE.md` |
+|-----------|----------------|-------------|
+| 백엔드 `eungsang/` | [eungsang/.cursorrules](./eungsang/.cursorrules) | [eungsang/CLAUDE.md](./eungsang/CLAUDE.md) |
+| 프론트 `jebbi/` | [jebbi/.cursorrules](./jebbi/.cursorrules) | [jebbi/CLAUDE.md](./jebbi/CLAUDE.md) |
+| 백엔드 앱 (예: titanic) | [eungsang/apps/titanic/_docs/.cursorrules](./eungsang/apps/titanic/_docs/.cursorrules) | [eungsang/apps/titanic/_docs/CLAUDE.md](./eungsang/apps/titanic/_docs/CLAUDE.md) |
+
+## 우선순위
+
+`vault/DEVOPS/*` > 하위 `CLAUDE.md` > [CLAUDE.md](./CLAUDE.md) > 일반 관례
+
+## 채팅 권장 멘션
+
+```text
+@CLAUDE.md @vault/README.md
++ (백엔드) @eungsang/CLAUDE.md @vault/DEVOPS/Backend/BACKEND_RULES.md
++ (프론트) @jebbi/CLAUDE.md @vault/DEVOPS/Frontend/REACT_RULES.md
++ (titanic) @eungsang/apps/titanic/_docs/CLAUDE.md
+```
