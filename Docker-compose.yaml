@@ -1,17 +1,26 @@
+# docker-compose (맥미니 · 로컬)
+# 루트 .env 예시:
+#   DATABASE_URL=postgresql+asyncpg://user:password@192.168.x.x:5433/dbname
+#   CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token
+
 services:
 
   # ── FastAPI 백엔드 (8000포트) ─────────────
   backend:
-    build:
-      context: ./eungsang
-      dockerfile: Dockerfile
-    container_name: eungsang-api
+    build: ./eungsang
+    container_name: eungsang
     ports:
       - "8000:8000"
     volumes:
       - ./eungsang:/app
     env_file:
       - ./eungsang/.env
+      - path: .env
+        required: false
+    # 맥미니 LAN Postgres — eungsang/.env 또는 루트 .env
+    # DATABASE_URL=postgresql+asyncpg://user:password@192.168.x.x:5433/dbname
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
       interval: 5s
@@ -19,6 +28,8 @@ services:
       retries: 10
       start_period: 15s
     restart: unless-stopped
+    networks:
+      - app-network
 
   # ── Next.js 프론트엔드 (3000포트) ─────────
   frontend:
@@ -31,15 +42,19 @@ services:
     volumes:
       - ./jebbi:/app
       - /app/node_modules
-      # Synology Drive 등 동기화 폴더에서 .next lockfile(os error 35) 방지
       - /app/.next
     environment:
       - DOCKER_CONTAINER=1
       - BACKEND_URL=http://backend:8000
+    env_file:
+      - path: ./jebbi/.env.local
+        required: false
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app-network
 
   # ── n8n 워크플로 자동화 (5678포트) ─────────
   n8n:
@@ -57,6 +72,23 @@ services:
     volumes:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Cloudflare Tunnel (외부 노출) ─────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - app-network
 
 volumes:
   n8n_data:
+
+networks:
+  app-network:
+    driver: bridge
