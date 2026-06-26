@@ -1,9 +1,9 @@
-[submodule "backend"]
-	path = backend
+[submodule "eungsang"]
+	path = eungsang
 	url = https://github.com/eungsangcom/com.ragwatson.api.git
-[submodule "frontend"]
-	path = frontend
+[submodule "jebbi"]
+	path = jebbi
 	url = https://github.com/eungsangcom/com.ragwatson.www.git
-[submodule "docs"]
-	path = docs
+[submodule "vault"]
+	path = vault
 	url = https://github.com/eungsangcom/com.ragwatson.docs.git

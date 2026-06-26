@@ -6,7 +6,7 @@
 
 1. **에이전트 하네스:** [AGENTS.md](./AGENTS.md)
 2. **모노레포 LLM 지침:** [CLAUDE.md](./CLAUDE.md)
-3. **DEVOPS 인덱스:** [vault/README.md](./vault/README.md)
+3. **DEVOPS 인덱스:** [_docs/README.md](./_docs/README.md)
 
 ## 작업 범위별 하위 규칙
 
@@ -14,17 +14,19 @@
 |-----------|----------------|-------------|
 | 백엔드 `eungsang/` | [eungsang/.cursorrules](./eungsang/.cursorrules) | [eungsang/CLAUDE.md](./eungsang/CLAUDE.md) |
 | 프론트 `jebbi/` | [jebbi/.cursorrules](./jebbi/.cursorrules) | [jebbi/CLAUDE.md](./jebbi/CLAUDE.md) |
+| Flutter `flutter/` | [flutter/_docs/.cursorrules](./flutter/_docs/.cursorrules) | [flutter/_docs/CLAUDE.md](./flutter/_docs/CLAUDE.md) |
 | 백엔드 앱 (예: titanic) | [eungsang/apps/titanic/_docs/.cursorrules](./eungsang/apps/titanic/_docs/.cursorrules) | [eungsang/apps/titanic/_docs/CLAUDE.md](./eungsang/apps/titanic/_docs/CLAUDE.md) |
 
 ## 우선순위
 
-`vault/DEVOPS/*` > 하위 `CLAUDE.md` > [CLAUDE.md](./CLAUDE.md) > 일반 관례
+`eungsang/_claude/*` · `jebbi/_claude/*` > 하위 `CLAUDE.md` > [CLAUDE.md](./CLAUDE.md) > 일반 관례
 
 ## 채팅 권장 멘션
 
 ```text
-@CLAUDE.md @vault/README.md
-+ (백엔드) @eungsang/CLAUDE.md @vault/DEVOPS/Backend/BACKEND_RULES.md
-+ (프론트) @jebbi/CLAUDE.md @vault/DEVOPS/Frontend/REACT_RULES.md
-+ (titanic) @eungsang/apps/titanic/_docs/CLAUDE.md
+@CLAUDE.md @_docs/README.md
++ (백엔드) @eungsang/.cursorrules @eungsang/CLAUDE.md @eungsang/_docs/BACKEND_RULES.md
++ (프론트) @jebbi/.cursorrules @jebbi/CLAUDE.md @jebbi/_docs/REACT_RULES.md
++ (Flutter) @flutter/_docs/CLAUDE.md
++ (titanic) @eungsang/apps/titanic/_docs/claude.md
 ```

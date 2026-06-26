@@ -16,22 +16,22 @@ Cursor에서 에이전트/챗을 쓸 때의 **하네스 운용** 안내. 상세 
 - 에이전트 요약: [AGENTS.md](./AGENTS.md)
 - DEVOPS 인덱스: [vault/README.md](./vault/README.md)
 
-**충돌 시:** `vault/DEVOPS/*` > 하위 `CLAUDE.md` > 루트 `CLAUDE.md`
+**충돌 시:** `eungsang/_claude/*` · `jebbi/_claude/*` > 하위 `CLAUDE.md` > 루트 `CLAUDE.md`
 
 ---
 
 ## 필수 워크플로
 
 1. 작업 범위에 맞는 `.cursorrules` + `CLAUDE.md` 확인  
-2. [vault/README.md](./vault/README.md) → 해당 DEVOPS 문서  
+2. [vault/README.md](./vault/README.md) → 스택별 `_claude/` 문서  
 3. 구현 → 검증 (테스트·빌드·린트)
 
 ```text
 # 백엔드
-@eungsang/.cursorrules @eungsang/CLAUDE.md @vault/DEVOPS/Backend/BACKEND_RULES.md
+@eungsang/.cursorrules @eungsang/CLAUDE.md @eungsang/_claude/CLAUDE.md
 
 # 프론트
-@jebbi/.cursorrules @jebbi/CLAUDE.md @vault/DEVOPS/Frontend/REACT_RULES.md
+@jebbi/.cursorrules @jebbi/CLAUDE.md @jebbi/_claude/CLAUDE.md
 
 # titanic 앱
 @eungsang/apps/titanic/_docs/CLAUDE.md

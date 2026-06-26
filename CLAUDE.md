@@ -1,7 +1,7 @@
 # com.ragwatson — 모노레포 LLM 지침 (루트)
 
 Karpathy-style **Harness Engineering** + **Wiki/PKS** 모노레포의 최상위 지침이다.  
-도메인·스택별 상세는 **아래 링크 문서**를 따른다. 본문과 충돌 시 **`vault/DEVOPS/*` > 하위 `CLAUDE.md` > 본 문서** 순으로 적용한다.
+도메인·스택별 상세는 **아래 링크 문서**를 따른다. 본문과 충돌 시 **`eungsang/_claude/*` · `jebbi/_claude/*` > 하위 `CLAUDE.md` > 본 문서** 순으로 적용한다.
 
 **트레이드오프:** 속도보다 신중함. 사소한 작업은 상황에 맞게 판단한다.
 
@@ -14,11 +14,38 @@ Karpathy-style **Harness Engineering** + **Wiki/PKS** 모노레포의 최상위 
 | **모노레포 루트** | [.cursorrules](./.cursorrules) | **본 문서** |
 | **백엔드** `eungsang/` | [eungsang/.cursorrules](./eungsang/.cursorrules) | [eungsang/CLAUDE.md](./eungsang/CLAUDE.md) |
 | **프론트** `jebbi/` | [jebbi/.cursorrules](./jebbi/.cursorrules) | [jebbi/CLAUDE.md](./jebbi/CLAUDE.md) |
+| **Flutter** `flutter/` | [flutter/_docs/.cursorrules](./flutter/_docs/.cursorrules) | [flutter/_docs/CLAUDE.md](./flutter/_docs/CLAUDE.md) |
 | **백엔드 앱** (예: titanic) | [eungsang/apps/titanic/_docs/.cursorrules](./eungsang/apps/titanic/_docs/.cursorrules) | [eungsang/apps/titanic/_docs/CLAUDE.md](./eungsang/apps/titanic/_docs/CLAUDE.md) |
 | **Obsidian 그래프** | — | [GRAPH.md](./GRAPH.md) (경로별 색상 범례·허브 링크) |
 
 - 백엔드 도메인 앱(`photo_battle`, `secom`, …)은 **titanic과 동일한 시블링 패턴**: `eungsang/apps/{app}/_docs/.cursorrules` + `CLAUDE.md`를 추가한다.
-- 코딩 규칙 인덱스: [vault/README.md](./vault/README.md) (서브모듈 `vault`, 구 `docs`)
+- 코딩 규칙·Wiki 인덱스: [_docs/README.md](./_docs/README.md) (서브모듈, 구 `vault`/`docs`)
+
+---
+
+## 문서 배치 규칙 (`_docs/`)
+
+**본문 `.md`는 스택별 `_docs/`에 둔다.** 하네스 진입점(`CLAUDE.md`, `.cursorrules`)만 `_claude/`(또는 루트)에 둔다.
+
+| 범위 | 경로 | 넣을 내용 | 넣지 않을 것 |
+|------|------|-----------|--------------|
+| **공통** | [_docs/](./_docs/) | DEVOPS, 업로드 가이드, 모노레포 전역 Wiki | 백엔드·프론트·Flutter 전용 규칙 |
+| **백엔드** | [eungsang/_docs/](./eungsang/_docs/) | `BACKEND_*`, `ENTITY_RULE`, ERD, API·레이어 상세 | 프론트·Flutter 문서 |
+| **프론트** | [jebbi/_docs/](./jebbi/_docs/) | `REACT_RULES`, `VERCEL_ENV`, UI·다크모드 스펙 | 백엔드·Flutter 문서 |
+| **Flutter** | [flutter/_docs/](./flutter/_docs/) | FlutterFlow 스펙, mobile 앱 가이드 | SDK 본문(`flutter/packages/` 등) |
+| **백엔드 앱** | `eungsang/apps/{app}/_docs/` | 앱 도메인 `CLAUDE.md`, `.cursorrules`, 앱 가이드 | 다른 앱·스택 문서 |
+
+### 하네스 vs 본문
+
+| 종류 | 위치 | 예 |
+|------|------|-----|
+| **하네스 진입** | `_claude/` (스택) · 루트 | `eungsang/_claude/CLAUDE.md`, `AGENTS.md` |
+| **그래프 mirror** | `{stack}/_docs/` symlink | `eungsang/_docs/CLAUDE.md` → `_claude/CLAUDE.md` |
+| **상세 본문 md** | `{stack}/_docs/` | `eungsang/_docs/BACKEND_RULES.md`, `jebbi/_docs/REACT_RULES.md` |
+
+### 우선순위 (충돌 시)
+
+`eungsang/_claude/*` · `jebbi/_claude/*` · `flutter/_docs/*` > 앱 `_docs/CLAUDE.md` > 스택 `_docs/` 본문 > [본 문서](./CLAUDE.md)
 
 ---
 
@@ -28,7 +55,9 @@ Karpathy-style **Harness Engineering** + **Wiki/PKS** 모노레포의 최상위 
 - **저장소 구성**
   - `eungsang/` — FastAPI 백엔드 (서브모듈)
   - `jebbi/` — Next.js 프론트 (서브모듈)
-  - `vault/` — DEVOPS·ERD·Wiki 문서 (서브모듈)
+  - `_docs/` — 공통 Wiki·DEVOPS (서브모듈, 구 `vault`/`docs`)
+  - `flutter/` — Flutter SDK (vendored) · 프로젝트 문서는 `flutter/_docs/`
+  - `mobile/` — Flutter 앱
   - `Docker-compose.yaml` — 로컬 `eungsang-api` + `eungsang-web`
 
 ---
@@ -93,16 +122,20 @@ Karpathy-style **Harness Engineering** + **Wiki/PKS** 모노레포의 최상위 
 # 공통
 @AGENTS.md
 @CLAUDE.md
+@_docs/README.md
 
 # 백엔드
 @eungsang/.cursorrules
 @eungsang/CLAUDE.md
-@vault/DEVOPS/Backend/BACKEND_RULES.md
+@eungsang/_docs/BACKEND_RULES.md
 
 # 프론트
 @jebbi/.cursorrules
 @jebbi/CLAUDE.md
-@vault/DEVOPS/Frontend/REACT_RULES.md
+@jebbi/_docs/REACT_RULES.md
+
+# Flutter
+@flutter/_docs/CLAUDE.md
 
 # 타이타닉 앱
 @eungsang/apps/titanic/_docs/.cursorrules

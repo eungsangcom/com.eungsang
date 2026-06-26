@@ -31,6 +31,8 @@ services:
     volumes:
       - ./jebbi:/app
       - /app/node_modules
+      # Synology Drive 등 동기화 폴더에서 .next lockfile(os error 35) 방지
+      - /app/.next
     environment:
       - DOCKER_CONTAINER=1
       - BACKEND_URL=http://backend:8000
@@ -38,3 +40,23 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+  # ── n8n 워크플로 자동화 (5678포트) ─────────
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: eungsang-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Seoul
+      - TZ=Asia/Seoul
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

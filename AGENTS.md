@@ -46,4 +46,4 @@
 - DEVOPS 상세: [vault/README.md](./vault/README.md)
 - Cursor 실천: [CURSOR.md](./CURSOR.md)
 
-**우선순위:** `vault/DEVOPS/*` > 하위 `CLAUDE.md` > [CLAUDE.md](./CLAUDE.md)
+**우선순위:** `eungsang/_claude/*` · `jebbi/_claude/*` > 하위 `CLAUDE.md` > [CLAUDE.md](./CLAUDE.md)
