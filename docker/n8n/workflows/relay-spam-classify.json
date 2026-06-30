@@ -1,0 +1,93 @@
+{
+  "name": "relay-spam-classify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "relay/spam-classify",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "relay-spam-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "relay-spam-classify"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://backend:8000/api/relay/spam/n8n/classify",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Relay-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ event: 'relay.spam_classify', data: { sender: $json.body?.sender ?? $json.sender ?? '', subject: $json.body?.subject ?? $json.subject ?? '', body: $json.body?.body ?? $json.body ?? '' } }) }}",
+        "options": {}
+      },
+      "id": "relay-spam-backend",
+      "name": "Classify via Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "relay-spam-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [780, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Classify via Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify via Backend": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "relay-spam-classify-v1",
+  "id": "RelaySpamClassifyWorkflow",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

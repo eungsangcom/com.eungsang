@@ -1,0 +1,85 @@
+{
+  "name": "relay-faker-email",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "relay/faker-email",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "relay-faker-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "relay-faker-email"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.body?.data?.to ?? $json.body?.to ?? $json.data?.to ?? '' }}",
+        "subject": "={{ $json.body?.data?.subject ?? $json.body?.subject ?? $json.data?.subject ?? '' }}",
+        "emailType": "html",
+        "message": "={{ $json.body?.data?.body_html ?? $json.body?.body_html ?? $json.data?.body_html ?? $json.body?.data?.body ?? $json.body?.body ?? $json.data?.body ?? '' }}",
+        "options": {}
+      },
+      "id": "relay-faker-gmail",
+      "name": "Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [520, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "relay-gmail-placeholder",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"ok\": true}",
+        "options": {}
+      },
+      "id": "relay-faker-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [780, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "relay-faker-email-v3",
+  "id": "RelayFakerEmailWorkflow",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
