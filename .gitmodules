@@ -5,6 +5,6 @@
 	path = jebbi
 	url = git@github.com:eungsangcom/com.eungsang.www.git
 [submodule "docs"]
-	path = vault
+	path = docs
 	url = git@github.com:eungsangcom/com.eungsang.docs.git
 
