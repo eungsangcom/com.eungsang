@@ -7,3 +7,6 @@
 [submodule "vault"]
 	path = vault
 	url = https://github.com/eungsangcom/com.ragwatson.docs.git
+[submodule "docs"]
+	path = docs
+	url = git@github.com:eungsangcom/com.eungsang.docs.git
