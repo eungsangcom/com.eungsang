@@ -95,6 +95,10 @@ data/local/
 models/
 artifacts/
 
+# Syncthing version history and multi-device conflict copies
+.stversions/
+*sync-conflict-*
+
 # IDE and editor local state
 .vscode/
 .idea/
