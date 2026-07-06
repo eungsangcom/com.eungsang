@@ -1,12 +1,10 @@
 [submodule "eungsang"]
 	path = eungsang
-	url = https://github.com/eungsangcom/com.ragwatson.api.git
+	url = git@github.com:eungsangcom/com.eungsang.api.git
 [submodule "jebbi"]
 	path = jebbi
-	url = https://github.com/eungsangcom/com.ragwatson.www.git
-[submodule "vault"]
-	path = vault
-	url = https://github.com/eungsangcom/com.ragwatson.docs.git
+	url = git@github.com:eungsangcom/com.eungsang.www.git
 [submodule "docs"]
-	path = docs
+	path = vault
 	url = git@github.com:eungsangcom/com.eungsang.docs.git
+
