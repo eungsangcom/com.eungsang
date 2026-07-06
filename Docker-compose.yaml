@@ -1,38 +1,72 @@
-# docker-compose (맥미니 · 로컬)
-# 루트 .env 예시:
-#   DATABASE_URL=postgresql+asyncpg://user:password@192.168.x.x:5433/dbname
-#   CLOUDFLARE_TUNNEL_TOKEN=your_tunnel_token
+﻿# docker-compose (맥미니 · NAS · 로컬)
+#
+# 기본: bind mount 없음 — 이미지 빌드(COPY) 코드만 사용.
+#   Synology Drive 등 클라우드 동기화 경로를 마운트하면 macOS Errno 35 로 기동 실패.
+#   코드 반영: docker compose up -d --build backend
+#
+# 구성
+#   - backend (FastAPI 8000)  ← 맥미니 Docker
+#   - frontend (Next.js 3000) ← 프로필 local-frontend (프로덕션은 Vercel)
+#   - cloudflared             ← Vercel BACKEND_URL 노출
+#   - n8n · redis · pgvector · neo4j · ontology-mcp · moderation-api
+#
+# 사용 예:
+#   docker compose up -d                          # 맥미니·NAS 스택
+#   docker compose --profile local-frontend up -d # 로컬 Next.js dev 컨테이너 포함
+#
+# 루트 .env (cp .env.example .env):
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+#   NEO4J_PASSWORD=...
+#   CLOUDFLARE_TUNNEL_TOKEN=...
 
 services:
 
   # ── FastAPI 백엔드 (8000포트) ─────────────
   backend:
     build: ./eungsang
-    container_name: eungsang
+    container_name: eungsang-api
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
-    volumes:
-      - ./eungsang:/app
     env_file:
       - ./eungsang/.env
       - path: .env
         required: false
-    # 맥미니 LAN Postgres — eungsang/.env 또는 루트 .env
-    # DATABASE_URL=postgresql+asyncpg://user:password@192.168.x.x:5433/dbname
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 15s
-    restart: unless-stopped
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 180s
+    environment:
+      DB_STARTUP_TIMEOUT_SEC: "180"
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-eungsang}:${POSTGRES_PASSWORD:-eung}@${POSTGRES_HOST:-192.168.0.72}:${POSTGRES_PORT:-5433}/${POSTGRES_DB:-eungsang_DB}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      RELAY_SPAM_LEARN_INGEST: "true"
+      N8N_FAKER_EMAIL_WEBHOOK_URL: http://n8n:5678/webhook/relay/faker-email
+      OLLAMA_HOST: http://host.docker.internal:11434
+      HOLOGRAM_REPLY_MODEL: hologram-eunsang
+      ONTOLOGY_MCP_URL: http://ontology-mcp:8421
+    depends_on:
+      redis:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+      n8n:
+        condition: service_started
+    restart: on-failure:5
     networks:
       - app-network
 
-  # ── Next.js 프론트엔드 (3000포트) ─────────
+  # ── Next.js 프론트엔드 (3000포트 · 로컬 dev) ─
   frontend:
+    profiles: ["local-frontend"]
     build:
       context: ./jebbi
       dockerfile: Dockerfile
@@ -45,7 +79,7 @@ services:
       - /app/.next
     environment:
       - DOCKER_CONTAINER=1
-      - BACKEND_URL=http://backend:8000
+      - BACKEND_URL=https://api.eungsang.com
     env_file:
       - path: ./jebbi/.env.local
         required: false
@@ -56,39 +90,155 @@ services:
     networks:
       - app-network
 
-  # ── n8n 워크플로 자동화 (5678포트) ─────────
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: eungsang-n8n
+  # ── Redis (6379 · AOF 영속화) ───────────────
+  redis:
+    image: redis:7-alpine
+    container_name: eungsang-redis
     ports:
-      - "5678:5678"
-    environment:
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://localhost:5678/
-      - GENERIC_TIMEZONE=Asia/Seoul
-      - TZ=Asia/Seoul
+      - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
-      - n8n_data:/home/node/.n8n
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
     networks:
       - app-network
 
-  # ── Cloudflare Tunnel (외부 노출) ─────────
+  # ── PostgreSQL + pgvector (5433→5432 · 벡터·관계형) ─
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: eungsang-pgvector
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-eungsang}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-eungsang}
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ./docker/pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eungsang} -d ${POSTGRES_DB:-eungsang}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      app-network:
+        ipv4_address: 172.18.0.8
+
+  # ── Neo4j 그래프 DB (7474 Browser · 7687 Bolt) ─
+  neo4j:
+    image: neo4j:5-community
+    container_name: eungsang-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+    volumes:
+      - neo4j_data:/data
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Ontology MCP (8421 · Neo4j + pgvector + Windows embed) ─
+  ontology-mcp:
+    build: ./ontology_mcp
+    container_name: eungsang-ontology-mcp
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8421"]
+    ports:
+      - "8421:8421"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
+      EMBED_URL: http://100.102.174.81:8420/embed
+    depends_on:
+      neo4j:
+        condition: service_started
+      pgvector:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── n8n 워크플로 자동화 (5678포트) ─────────
+  # relay 워크플로는 이미지 빌드 시 COPY (docker/n8n/Dockerfile)
+  n8n:
+    build: ./docker/n8n
+    image: eungsang-n8n:local
+    container_name: eungsang-n8n
+    ports:
+      - "5678:5678"
+    entrypoint: ["/docker-entrypoint.sh"]
+    environment:
+      - N8N_HOST=n8n.eungsang.com
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=https://n8n.eungsang.com/
+      - N8N_EDITOR_BASE_URL=https://n8n.eungsang.com/
+      - GENERIC_TIMEZONE=Asia/Seoul
+      - TZ=Asia/Seoul
+      - ONTOMCP_HOST=ontology-mcp
+      - ONTOMCP_PORT=8421
+    volumes:
+      - n8n_data:/home/node/.n8n
+    restart: unless-stopped
+    networks:
+      app-network:
+        ipv4_address: 172.18.0.9
+
+  # ── Moderation API (8010→8000 · 콘텐츠 검수) ─
+  moderation-api:
+    build:
+      context: ./eungsang
+      dockerfile: apps/moderation_service/Dockerfile
+    container_name: eungsang-moderation-api
+    ports:
+      - "8010:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Cloudflare Tunnel (외부 → tunnel-origin → backend) ─
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel --no-autoupdate run
+    env_file:
+      - ./eungsang/.env
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      backend:
+        condition: service_healthy
     networks:
       - app-network
 
 volumes:
   n8n_data:
+  redis_data:
+  pgvector_data:
+  neo4j_data:
 
 networks:
   app-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16

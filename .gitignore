@@ -3,6 +3,8 @@
 .env.*
 !.env.example
 !.env.sample
+scripts/macmini.env
+scripts/.macmini-ssh-status.txt
 .envrc
 .npmrc
 .pypirc
@@ -144,3 +146,4 @@ htmlcov/
 .idea/
 *.swp
 *.swo
+.vercel

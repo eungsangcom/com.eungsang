@@ -1,0 +1,11 @@
+# 맥북 ~/.ssh/config 에 아래 블록을 추가하세요.
+#   cat scripts/ssh-config-macmini.snippet >> ~/.ssh/config
+#
+# 최초 1회: ssh macmini  (호스트 키 수락)
+# 확인: ssh macmini 'hostname && docker ps --format "{{.Names}}"'
+
+Host macmini
+  HostName 100.84.118.21
+  User leeeunsang
+  IdentityFile ~/.ssh/id_ed25519_macmini
+  IdentitiesOnly yes
