@@ -8,7 +8,7 @@
 #   - backend (FastAPI 8000)  ← 맥미니 Docker
 #   - frontend (Next.js 3000) ← 프로필 local-frontend (프로덕션은 Vercel)
 #   - cloudflared             ← Vercel BACKEND_URL 노출
-#   - n8n · redis · pgvector · neo4j · ontology-mcp · moderation-api
+#   - n8n · redis · neo4j · ontology-mcp · moderation-api (DB: NAS pgvector 192.168.0.72:5433)
 #
 # 사용 예:
 #   docker compose up -d                          # 맥미니·NAS 스택
@@ -53,8 +53,6 @@ services:
       ONTOLOGY_MCP_URL: http://ontology-mcp:8421
     depends_on:
       redis:
-        condition: service_healthy
-      pgvector:
         condition: service_healthy
       neo4j:
         condition: service_started
@@ -108,29 +106,6 @@ services:
     networks:
       - app-network
 
-  # ── PostgreSQL + pgvector (5433→5432 · 벡터·관계형) ─
-  pgvector:
-    image: pgvector/pgvector:pg16
-    container_name: eungsang-pgvector
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-eungsang}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-eungsang}
-    volumes:
-      - pgvector_data:/var/lib/postgresql/data
-      - ./docker/pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eungsang} -d ${POSTGRES_DB:-eungsang}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-    networks:
-      app-network:
-        ipv4_address: 172.18.0.8
-
   # ── Neo4j 그래프 DB (7474 Browser · 7687 Bolt) ─
   neo4j:
     image: neo4j:5-community
@@ -164,8 +139,6 @@ services:
     depends_on:
       neo4j:
         condition: service_started
-      pgvector:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - app-network
@@ -233,7 +206,6 @@ services:
 volumes:
   n8n_data:
   redis_data:
-  pgvector_data:
   neo4j_data:
 
 networks:
