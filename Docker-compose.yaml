@@ -48,7 +48,7 @@ services:
       NEO4J_USER: neo4j
       RELAY_SPAM_LEARN_INGEST: "true"
       N8N_FAKER_EMAIL_WEBHOOK_URL: http://n8n:5678/webhook/relay/faker-email
-      OLLAMA_HOST: http://host.docker.internal:11434
+      OLLAMA_HOST: http://100.102.174.81:11434
       HOLOGRAM_REPLY_MODEL: exaone-hologram
       ONTOLOGY_MCP_URL: http://ontology-mcp:8421
     depends_on:
