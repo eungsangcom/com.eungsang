@@ -49,7 +49,7 @@ services:
       RELAY_SPAM_LEARN_INGEST: "true"
       N8N_FAKER_EMAIL_WEBHOOK_URL: http://n8n:5678/webhook/relay/faker-email
       OLLAMA_HOST: http://host.docker.internal:11434
-      HOLOGRAM_REPLY_MODEL: hologram-eunsang
+      HOLOGRAM_REPLY_MODEL: exaone-hologram
       ONTOLOGY_MCP_URL: http://ontology-mcp:8421
     depends_on:
       redis:
@@ -109,6 +109,7 @@ services:
       - app-network
 
   # ── PostgreSQL + pgvector (5433→5432 · 벡터·관계형) ─
+  # image: pgvector/pgvector:pg16 (postgres:16 + vector 확장)
   pgvector:
     image: pgvector/pgvector:pg16
     container_name: eungsang-pgvector
@@ -119,7 +120,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: ${POSTGRES_DB:-eungsang}
     volumes:
-      - pgvector_data:/var/lib/postgresql/data
+      - ./data:/var/lib/postgresql/data
       - ./docker/pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-eungsang} -d ${POSTGRES_DB:-eungsang}"]
