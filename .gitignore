@@ -158,3 +158,4 @@ htmlcov/
 scripts/artimuse_server/logs/
 scripts/artimuse_server/config.cmd
 scripts/artimuse_server/config.ps1
+.DS_Store
