@@ -64,6 +64,14 @@ Invoke-WebRequest http://127.0.0.1:8426/health
 
 자동 기동(`install_task.ps1`)은 VRAM을 상시 점유하므로 **권장하지 않음**.
 
+대신 **lazy load + idle unload**(기본값)를 쓰면:
+
+- 서버 프로세스만 상시 실행 (포트 8426, RAM 수십 MB)
+- **첫 `/score`(심사) 요청 시** GPU 모델 로드 (~15초)
+- **마지막 심사 후 5분** (`ARTIMUSE_IDLE_UNLOAD_SEC=300`) 지나면 VRAM 자동 해제
+
+`GET /health` → `model_loaded: false` 이면 VRAM은 비어 있는 상태.
+
 ## 4. 맥미니 backend 연결
 
 `eungsang/.env` 에 다음을 추가하고 backend 재시작:
@@ -86,3 +94,5 @@ ARTIMUSE_URL=http://<윈도우 Tailscale IP>:8426
 | `ARTIMUSE_INCLUDE_ANALYSIS` | `1` | 8차원 분석 포함 |
 | `ARTIMUSE_MAX_NEW_TOKENS` | `512` | 분석 토큰 상한 |
 | `ARTIMUSE_PORT` | `8426` | 서버 포트 |
+| `ARTIMUSE_LAZY_LOAD` | `1` | 기동 시 모델 미로드, 심사 시 로드 |
+| `ARTIMUSE_IDLE_UNLOAD_SEC` | `300` | 심사 후 VRAM 해제 대기(초), `0`=항상 상주 |

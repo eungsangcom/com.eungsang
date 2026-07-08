@@ -18,6 +18,8 @@
   ARTIMUSE_INCLUDE_ANALYSIS 기본 분석 포함 여부 (기본: 1)
   ARTIMUSE_MAX_NEW_TOKENS 분석 토큰 상한 (기본: 512)
   ARTIMUSE_PORT           서버 포트 (기본: 8426)
+  ARTIMUSE_LAZY_LOAD      기동 시 모델 미로드, /score 시 로드 (기본: 1)
+  ARTIMUSE_IDLE_UNLOAD_SEC 마지막 심사 후 VRAM 해제까지 초 (기본: 300, 0=비활성)
 """
 
 from __future__ import annotations
@@ -70,6 +72,8 @@ USE_FLASH_ATTN = _bool_env("ARTIMUSE_USE_FLASH_ATTN", False)
 INCLUDE_ANALYSIS_DEFAULT = _bool_env("ARTIMUSE_INCLUDE_ANALYSIS", True)
 MAX_NEW_TOKENS = int(os.getenv("ARTIMUSE_MAX_NEW_TOKENS", "512"))
 PORT = int(os.getenv("ARTIMUSE_PORT", "8426"))
+LAZY_LOAD = _bool_env("ARTIMUSE_LAZY_LOAD", True)
+IDLE_UNLOAD_SEC = int(os.getenv("ARTIMUSE_IDLE_UNLOAD_SEC", "300"))
 
 
 def _build_transform(input_size: int = 448):
@@ -89,7 +93,50 @@ class ArtiMuseEngine:
         self.tokenizer = None
         self.transform = _build_transform()
         self.gen_config: dict = {}
-        self._lock = threading.Lock()  # GPU 추론 직렬화
+        self._lock = threading.Lock()  # GPU 추론·로드·언로드 직렬화
+        self._idle_timer: threading.Timer | None = None
+
+    def is_loaded(self) -> bool:
+        return self.model is not None
+
+    def _cancel_idle_timer(self) -> None:
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
+            self._idle_timer = None
+
+    def _schedule_idle_unload(self) -> None:
+        self._cancel_idle_timer()
+        if IDLE_UNLOAD_SEC <= 0:
+            return
+        self._idle_timer = threading.Timer(IDLE_UNLOAD_SEC, self._idle_unload_callback)
+        self._idle_timer.daemon = True
+        self._idle_timer.start()
+
+    def _idle_unload_callback(self) -> None:
+        try:
+            self.unload()
+        except Exception:  # noqa: BLE001
+            logger.exception("[artimuse] idle unload failed")
+
+    def unload(self) -> None:
+        with self._lock:
+            self._cancel_idle_timer()
+            if self.model is None:
+                return
+            logger.info("[artimuse] unloading model (VRAM release)")
+            del self.model
+            del self.tokenizer
+            self.model = None
+            self.tokenizer = None
+            self.gen_config = {}
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("[artimuse] model unloaded")
+
+    def ensure_loaded(self) -> None:
+        if self.model is not None:
+            return
+        self.load()
 
     def load(self) -> None:
         if not REPO:
@@ -137,9 +184,10 @@ class ArtiMuseEngine:
         return tensor.to(torch.bfloat16).to(DEVICE)
 
     def score_image(self, image: Image.Image, include_analysis: bool) -> dict:
+        self._cancel_idle_timer()
         with self._lock:
+            self.ensure_loaded()
             pixel_values = self._pixel_values(image)
-            # score()는 max_new_tokens 상한이 커도 되지만 gen_config를 그대로 사용
             overall = float(
                 self.model.score(DEVICE, self.tokenizer, pixel_values, dict(self.gen_config))
             )
@@ -154,6 +202,7 @@ class ArtiMuseEngine:
                         DEVICE, self.tokenizer, pixel_values, prompt, dict(self.gen_config)
                     )
                     attributes[aspect] = (response or "").strip()
+        self._schedule_idle_unload()
         return {"overall": round(overall, 2), "attributes": attributes}
 
 
@@ -162,8 +211,16 @@ engine = ArtiMuseEngine()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    engine.load()
+    if not LAZY_LOAD:
+        engine.load()
+    else:
+        logger.info(
+            "[artimuse] lazy load enabled — model loads on first /score, "
+            "unloads after %ss idle",
+            IDLE_UNLOAD_SEC,
+        )
     yield
+    engine.unload()
 
 
 app = FastAPI(title="ArtiMuse Scoring Server", lifespan=lifespan)
@@ -171,7 +228,20 @@ app = FastAPI(title="ArtiMuse Scoring Server", lifespan=lifespan)
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok" if engine.model is not None else "loading", "device": DEVICE}
+    return {
+        "status": "ok",
+        "device": DEVICE,
+        "model_loaded": engine.is_loaded(),
+        "lazy_load": LAZY_LOAD,
+        "idle_unload_sec": IDLE_UNLOAD_SEC,
+    }
+
+
+@app.post("/unload")
+def unload_model() -> dict:
+    """수동 VRAM 해제 (선택)."""
+    engine.unload()
+    return {"status": "ok", "model_loaded": False}
 
 
 @app.post("/score")
@@ -179,8 +249,6 @@ async def score(
     file: UploadFile = File(...),
     include_analysis: bool | None = Form(None),
 ) -> dict:
-    if engine.model is None:
-        raise HTTPException(status_code=503, detail="model not loaded")
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="empty image")
