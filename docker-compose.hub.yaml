@@ -1,0 +1,32 @@
+# Docker Hub pull 전용 override (맥미니 서버)
+#
+# 개발 PC: ./scripts/docker/push-images.sh
+# 맥미니:  ./scripts/docker/hub-pull-up.sh
+#          또는 docker compose -f Docker-compose.yaml -f docker-compose.hub.yaml pull
+#
+# 태그: IMAGE_TAG=abc123 ./scripts/docker/push-images.sh
+
+services:
+  backend:
+    image: eungsang/eungsang-api:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  ontology-mcp:
+    image: eungsang/eungsang-ontology-mcp:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  code-rag:
+    image: eungsang/eungsang-code-rag:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  novel-rag:
+    image: eungsang/eungsang-novel-rag:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  n8n:
+    image: eungsang/eungsang-n8n:${IMAGE_TAG:-latest}
+    build: !reset null
+
+  moderation-api:
+    image: eungsang/eungsang-moderation:${IMAGE_TAG:-latest}
+    build: !reset null
