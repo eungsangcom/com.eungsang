@@ -1,0 +1,7 @@
+@echo off
+REM config.cmd.example -> config.cmd 로 복사
+REM 에이전트에는 PY(선택)와 포트만 넣으세요. .env 항목을 복사하지 마세요.
+REM 괄호가 있는 값은 반드시 set "KEY=value" 형태로 따옴표를 씁니다.
+
+REM set "PY=C:\Users\YOUR_USER\miniconda3\python.exe"
+REM set "METRICS_AGENT_PORT=8425"

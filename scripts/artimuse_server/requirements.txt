@@ -1,0 +1,11 @@
+# ArtiMuse HTTP 서버 추가 의존성 (서버 래퍼 전용).
+# 모델·추론 의존성(torch CUDA, transformers==4.37.2, bitsandbytes, timm, einops,
+# sentencepiece 등)은 ArtiMuse 저장소의 requirements.txt 로 별도 설치한다.
+#   pip install -r <ARTIMUSE_REPO>/requirements.txt
+# torch는 CUDA 버전에 맞춰 https://pytorch.org 에서 설치.
+
+fastapi
+uvicorn[standard]
+python-multipart
+anyio
+Pillow

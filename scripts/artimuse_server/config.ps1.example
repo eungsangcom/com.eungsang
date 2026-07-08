@@ -1,0 +1,8 @@
+# ArtiMuse server local config (optional)
+# Copy to config.ps1 and edit paths.
+
+# $env:PY = "C:\ProgramData\anaconda3\envs\artimuse\python.exe"
+# $env:ARTIMUSE_REPO = "C:\ai\ArtiMuse"
+# $env:ARTIMUSE_MODEL_PATH = "C:\ai\ArtiMuse\checkpoints\ArtiMuse"
+# $env:ARTIMUSE_PORT = "8426"
+# $env:ARTIMUSE_LOAD_8BIT = "1"
