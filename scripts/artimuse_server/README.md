@@ -27,28 +27,42 @@ huggingface-cli download Thunderbolt215215/ArtiMuse --local-dir checkpoints\Arti
 ## 2. 설정
 
 ```powershell
-cd <이 저장소>\scripts\artimuse_server
-copy config.cmd.example config.cmd
-# config.cmd 편집: PY, ARTIMUSE_REPO(=C:\ai\ArtiMuse) 지정
+cd G:\project\com.eungsang\scripts\artimuse_server
+copy config.ps1.example config.ps1
+notepad config.ps1
 ```
 
-## 3. 실행 / 자동 기동
+`config.ps1` 예시:
 
 ```powershell
-# 수동 실행 (모델 로딩에 수십 초)
-.\run_server.bat
+$env:PY = "C:\ProgramData\anaconda3\envs\artimuse\python.exe"
+$env:ARTIMUSE_REPO = "C:\ai\ArtiMuse"
+```
 
-# 방화벽 개방 (관리자, 최초 1회)
-.\open_firewall_port.ps1
+## 3. 실행 (수동 — VRAM ~10GB, 평소엔 끄기)
 
-# 자동 기동 등록
-Set-ExecutionPolicy -Scope Process Bypass
-.\install_task.ps1                 # 로그온 시
-.\install_task.ps1 -Trigger Startup  # 부팅 시 (관리자)
+```powershell
+cd G:\project\com.eungsang\scripts\artimuse_server
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\run_server.ps1
+```
 
-# 확인
+또는 conda에서 직접:
+
+```powershell
+conda activate artimuse
+$env:ARTIMUSE_REPO = "C:\ai\ArtiMuse"
+cd G:\project\com.eungsang
+python scripts\artimuse_server\artimuse_server.py
+```
+
+```powershell
 Invoke-WebRequest http://127.0.0.1:8426/health
 ```
+
+방화벽 (관리자, 최초 1회): `.\open_firewall_port.ps1`
+
+자동 기동(`install_task.ps1`)은 VRAM을 상시 점유하므로 **권장하지 않음**.
 
 ## 4. 맥미니 backend 연결
 
