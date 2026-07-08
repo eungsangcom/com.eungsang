@@ -1,0 +1,6 @@
+@echo off
+REM 이 파일을 config.cmd 로 복사한 뒤 Python 경로를 지정하세요.
+REM 부팅 시(SYSTEM) 작업 스케줄러 등록 시 특히 필요합니다.
+REM
+REM set "PY=C:\Users\YOUR_USER\AppData\Local\Programs\Python\Python312\python.exe"
+REM set "METRICS_AGENT_PORT=8425"
