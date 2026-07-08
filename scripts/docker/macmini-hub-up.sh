@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 : "${MACMINI_DEPLOY_DIR:=$SCRIPT_DIR}"
 : "${IMAGE_TAG:=latest}"
 : "${SKIP_ALEMBIC:=0}"
+: "${SKIP_PULL:=0}"
 
 COMPOSE_MAIN="$MACMINI_DEPLOY_DIR/Docker-compose.yaml"
 COMPOSE_HUB="$MACMINI_DEPLOY_DIR/docker-compose.hub.yaml"
@@ -42,8 +43,12 @@ compose() {
 }
 
 echo "==> deploy dir: $MACMINI_DEPLOY_DIR"
-echo "==> pull (IMAGE_TAG=${IMAGE_TAG})"
-compose pull
+if [[ "$SKIP_PULL" != "1" ]]; then
+  echo "==> pull (IMAGE_TAG=${IMAGE_TAG})"
+  compose pull
+else
+  echo "==> pull skipped (SKIP_PULL=1)"
+fi
 
 echo "==> up -d"
 compose up -d
