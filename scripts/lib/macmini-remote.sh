@@ -5,7 +5,7 @@
 : "${MACMINI_SSH_HOST:=macmini}"
 : "${MACMINI_SSH_USER:=leeeunsang}"
 : "${MACMINI_TAILSCALE_IP:=100.84.118.21}"
-: "${MACMINI_PROJECT_DIR:=/Users/leeeunsang/com.ragwatson}"
+: "${MACMINI_PROJECT_DIR:=/Volumes/project/eungsang.com/deploy}"
 : "${MACMINI_COMPOSE_FILE:=Docker-compose.yaml}"
 
 # 맥미니 본체에서 직접 실행할 때만 1 (맥미니 ~/.zshrc 등)
