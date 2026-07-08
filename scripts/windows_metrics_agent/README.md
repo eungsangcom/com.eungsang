@@ -4,11 +4,24 @@
 
 ## 빠른 실행
 
+PowerShell (conda `artimuse` 등 — **권장**):
+
 ```powershell
 cd G:\project\com.eungsang\scripts\windows_metrics_agent
-.\run_agent.bat
+Set-ExecutionPolicy -Scope Process Bypass
+.\run_agent.ps1
 Invoke-WebRequest http://127.0.0.1:8425/health
 ```
+
+또는 Python 직접 실행:
+
+```powershell
+cd G:\project\com.eungsang
+pip install fastapi uvicorn psutil
+python windows_metrics_agent.py
+```
+
+배치 (`run_agent.bat`)는 cmd 인코딩 이슈가 있으면 위 PowerShell 방식을 쓰세요.
 
 ## `config.cmd` (선택)
 

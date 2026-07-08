@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-:: Windows metrics agent — manual or Task Scheduler
+:: Windows metrics agent - manual or Task Scheduler
 
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%..\.."
@@ -11,7 +11,7 @@ set "LOG_FILE=%LOG_DIR%\agent.log"
 if exist "%SCRIPT_DIR%config.cmd" (
     call "%SCRIPT_DIR%config.cmd"
     if errorlevel 1 (
-        echo [ERROR] config.cmd failed. Remove it or fix quoting — see README.md
+        echo [ERROR] config.cmd failed. See README.md
         exit /b 1
     )
 )
