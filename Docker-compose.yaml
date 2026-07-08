@@ -19,6 +19,7 @@
 #   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
 #   NEO4J_PASSWORD=...
 #   CLOUDFLARE_TUNNEL_TOKEN=...
+#   UPLOADS_HOST_PATH=/Volumes/project/eungsang.com/upload  (맥미니 NAS 마운트, 미설정 시 ./eungsang/apps/uploads)
 
 services:
 
@@ -65,7 +66,7 @@ services:
         condition: service_started
     restart: on-failure:5
     volumes:
-      - ./eungsang/apps/uploads:/app/apps/uploads
+      - ${UPLOADS_HOST_PATH:-./eungsang/apps/uploads}:/app/apps/uploads
       - /Volumes/photo:/Volumes/photo:ro
     networks:
       - app-network
