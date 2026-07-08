@@ -151,3 +151,10 @@ htmlcov/
 *.swp
 *.swo
 .vercel
+
+# ArtiMuse 모델 가중치 (대용량 ~15GB) 및 서버 로컬 상태
+/ArtiMuse/
+*.safetensors
+scripts/artimuse_server/logs/
+scripts/artimuse_server/config.cmd
+scripts/artimuse_server/config.ps1
