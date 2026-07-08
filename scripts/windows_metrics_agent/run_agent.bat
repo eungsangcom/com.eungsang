@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-REM 윈도우 GPU 메트릭 에이전트 실행 — 작업 스케줄러·수동 기동 공용
+:: Windows metrics agent — manual or Task Scheduler
 
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%..\.."
@@ -8,7 +8,13 @@ set "AGENT_PY=%REPO_ROOT%\windows_metrics_agent.py"
 set "LOG_DIR=%SCRIPT_DIR%logs"
 set "LOG_FILE=%LOG_DIR%\agent.log"
 
-if exist "%SCRIPT_DIR%config.cmd" call "%SCRIPT_DIR%config.cmd"
+if exist "%SCRIPT_DIR%config.cmd" (
+    call "%SCRIPT_DIR%config.cmd"
+    if errorlevel 1 (
+        echo [ERROR] config.cmd failed. Remove it or fix quoting — see README.md
+        exit /b 1
+    )
+)
 
 if not exist "%AGENT_PY%" (
     echo [ERROR] windows_metrics_agent.py not found: %AGENT_PY%
