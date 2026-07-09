@@ -2,8 +2,9 @@
 #
 # 기본: bind mount 없음 — 이미지 빌드(COPY) 코드만 사용.
 #   Synology Drive 등 클라우드 동기화 경로를 마운트하면 macOS Errno 35 로 기동 실패.
-#   코드 반영(로컬 빌드): docker compose up -d --build backend
-#   Hub pull만(맥미니): docker compose -f Docker-compose.yaml -f docker-compose.hub.yaml pull && up -d
+#   맥미니 프로덕션(권장): 맥북에서 ./scripts/docker/deploy-backend-to-macmini.sh
+#     — 맥미니 git pull / compose --build 없음 · docker save|load 로 이미지만 반영
+#   Hub pull(대안): docker compose -f Docker-compose.yaml -f docker-compose.hub.yaml pull && up -d
 #
 # 구성
 #   - backend (FastAPI 8000)  ← 맥미니 Docker

@@ -5,8 +5,10 @@
 : "${MACMINI_SSH_HOST:=macmini}"
 : "${MACMINI_SSH_USER:=leeeunsang}"
 : "${MACMINI_TAILSCALE_IP:=100.84.118.21}"
-: "${MACMINI_PROJECT_DIR:=/Volumes/project/eungsang.com/deploy}"
-: "${MACMINI_COMPOSE_FILE:=Docker-compose.yaml}"
+# 프로덕션 compose·env (맥미니 git pull 없음 — 이미지 배포만)
+: "${MACMINI_PROJECT_DIR:=/Volumes/incloser/project/com.eungsang}"
+: "${MACMINI_COMPOSE_FILE:=docker-compose.yaml}"
+: "${MACMINI_BACKEND_IMAGE:=}"
 
 # 맥미니 본체에서 직접 실행할 때만 1 (맥미니 ~/.zshrc 등)
 : "${MACMINI_LOCAL:=0}"
