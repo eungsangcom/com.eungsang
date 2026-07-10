@@ -13,7 +13,8 @@ class NovelChunk:
 
 
 def normalize_text(text: str) -> str:
-    """PDF 줄바꿈·공백 정리."""
+    """PDF 줄바꿈·공백 정리. Postgres UTF8에 넣지 못하는 NUL 바이트도 제거."""
+    text = text.replace("\x00", "")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # 하이픈으로 끊긴 단어 이어붙이기 (영문 PDF)
     text = __import__("re").sub(r"(\w)-\n(\w)", r"\1\2", text)
