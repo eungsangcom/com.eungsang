@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-WORKFLOW_VERSION="v3"
+WORKFLOW_VERSION="v4"
 
 import_and_publish_workflow() {
   marker="$1"

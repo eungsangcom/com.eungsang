@@ -12,22 +12,40 @@
       "name": "Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [260, 300],
+      "position": [200, 300],
       "webhookId": "relay-faker-email"
     },
     {
       "parameters": {
-        "sendTo": "={{ $json.body?.data?.to ?? $json.body?.to ?? $json.data?.to ?? '' }}",
-        "subject": "={{ $json.body?.data?.subject ?? $json.body?.subject ?? $json.data?.subject ?? '' }}",
+        "jsCode": "const root = $input.first().json;\nconst body = root.body ?? root;\nconst data = body.data ?? body;\nconst attachments = data.attachments ?? body.attachments ?? [];\nconst binary = {};\nif (Array.isArray(attachments)) {\n  attachments.forEach((att, index) => {\n    if (!att || !att.content_base64 || !att.filename) return;\n    const key = `attachment_${index}`;\n    binary[key] = {\n      data: att.content_base64,\n      fileName: att.filename,\n      mimeType: att.content_type || 'application/octet-stream',\n    };\n  });\n}\nreturn [{\n  json: {\n    to: data.to ?? body.to ?? '',\n    subject: data.subject ?? body.subject ?? '',\n    body_html: data.body_html ?? body.body_html ?? data.body ?? body.body ?? '',\n    attachment_keys: Object.keys(binary),\n  },\n  binary,\n}];"
+      },
+      "id": "relay-faker-prepare",
+      "name": "Prepare Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
         "emailType": "html",
-        "message": "={{ $json.body?.data?.body_html ?? $json.body?.body_html ?? $json.data?.body_html ?? $json.body?.data?.body ?? $json.body?.body ?? $json.data?.body ?? '' }}",
-        "options": {}
+        "message": "={{ $json.body_html }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "={{ $json.attachment_keys.join(',') }}"
+              }
+            ]
+          }
+        }
       },
       "id": "relay-faker-gmail",
       "name": "Gmail",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [520, 300],
+      "position": [660, 300],
       "credentials": {
         "gmailOAuth2": {
           "id": "relay-gmail-placeholder",
@@ -45,11 +63,22 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [780, 300]
+      "position": [900, 300]
     }
   ],
   "connections": {
     "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Attachments": {
       "main": [
         [
           {
@@ -76,7 +105,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "relay-faker-email-v3",
+  "versionId": "relay-faker-email-v4",
   "id": "RelayFakerEmailWorkflow",
   "meta": {
     "templateCredsSetupCompleted": false
