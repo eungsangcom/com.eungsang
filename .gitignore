@@ -160,5 +160,6 @@ scripts/artimuse_server/config.cmd
 scripts/artimuse_server/config.ps1
 scripts/windows_git_sync/config.cmd
 scripts/windows_git_sync/logs/
+scripts/mac_git_sync/logs/
 scripts/windows_metrics_agent/logs/
 .DS_Store

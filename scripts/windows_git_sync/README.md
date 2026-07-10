@@ -2,6 +2,8 @@
 
 맥북에서 push하면 윈도우 `G:\project\com.eungsang`이 자동으로 `origin/main`을 따라갑니다.
 
+반대 방향(윈도우 → 맥북)은 [`scripts/mac_git_sync/README.md`](../mac_git_sync/README.md) 참고.
+
 ## 동작
 
 1. **폴링** — 30초마다 `git fetch` → 뒤처지면 `pull --ff-only` + submodule update  
@@ -56,6 +58,13 @@ WINDOWS_GIT_SYNC_URL=http://100.102.174.81:8426/sync ./scripts/windows_git_sync/
 ```
 
 알림이 실패해도 폴링이 ~30초 안에 pull합니다.
+
+## 윈도우에서 push 후 맥북 알림
+
+```powershell
+git push; .\scripts\windows_git_sync\notify-mac-sync.ps1
+.\scripts\windows_git_sync\push-and-notify-mac.ps1
+```
 
 ## API
 

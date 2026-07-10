@@ -1,14 +1,17 @@
-"""윈도우 git 자동 동기화 에이전트.
+"""Git 자동 동기화 에이전트 (Windows / Mac 공용).
 
-맥북에서 push 하면:
+상대 머신에서 push 하면:
   1) 주기 fetch/pull (기본 30초)
   2) POST /sync 즉시 동기화 (권장)
 
 수동:
     python windows_git_sync_agent.py
 
-작업 스케줄러:
+Windows 작업 스케줄러:
     scripts/windows_git_sync/install_task.ps1
+
+Mac launchd:
+    scripts/mac_git_sync/install_launchd.sh
 """
 
 from __future__ import annotations
@@ -27,14 +30,41 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 _HERE = Path(__file__).resolve().parent
-REPO_ROOT = Path(os.getenv("WINDOWS_GIT_SYNC_REPO", str(_HERE))).expanduser()
-BRANCH = os.getenv("WINDOWS_GIT_SYNC_BRANCH", "main")
-POLL_SECONDS = int(os.getenv("WINDOWS_GIT_SYNC_POLL_SECONDS", "30"))
-PORT = int(os.getenv("WINDOWS_GIT_SYNC_PORT", "8426"))
+
+
+def _env(*names: str, default: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return default
+
+
+REPO_ROOT = Path(
+    _env("GIT_SYNC_REPO", "WINDOWS_GIT_SYNC_REPO", "MAC_GIT_SYNC_REPO", default=str(_HERE))
+).expanduser()
+BRANCH = _env("GIT_SYNC_BRANCH", "WINDOWS_GIT_SYNC_BRANCH", "MAC_GIT_SYNC_BRANCH", default="main")
+POLL_SECONDS = int(
+    _env(
+        "GIT_SYNC_POLL_SECONDS",
+        "WINDOWS_GIT_SYNC_POLL_SECONDS",
+        "MAC_GIT_SYNC_POLL_SECONDS",
+        default="30",
+    )
+)
+PORT = int(_env("GIT_SYNC_PORT", "WINDOWS_GIT_SYNC_PORT", "MAC_GIT_SYNC_PORT", default="8426"))
+SERVICE = _env(
+    "GIT_SYNC_SERVICE",
+    "WINDOWS_GIT_SYNC_SERVICE",
+    "MAC_GIT_SYNC_SERVICE",
+    default="git-sync",
+)
 LOG_DIR = Path(
-    os.getenv(
+    _env(
+        "GIT_SYNC_LOG_DIR",
         "WINDOWS_GIT_SYNC_LOG_DIR",
-        str(_HERE / "scripts" / "windows_git_sync" / "logs"),
+        "MAC_GIT_SYNC_LOG_DIR",
+        default=str(_HERE / "scripts" / "windows_git_sync" / "logs"),
     )
 )
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -49,9 +79,9 @@ logging.basicConfig(
         logging.StreamHandler(),
     ],
 )
-logger = logging.getLogger("windows-git-sync")
+logger = logging.getLogger(SERVICE)
 
-app = FastAPI(title="windows-git-sync")
+app = FastAPI(title=SERVICE)
 _lock = threading.Lock()
 _last: dict = {}
 
@@ -166,7 +196,7 @@ def _poll_loop() -> None:
 def health() -> dict:
     return {
         "ok": True,
-        "service": "windows-git-sync",
+        "service": SERVICE,
         "repo": str(REPO_ROOT),
         "branch": BRANCH,
         "poll_seconds": POLL_SECONDS,
@@ -183,13 +213,14 @@ def status() -> dict:
 @app.post("/sync")
 def sync_now():
     result = sync_repo(reason="http")
-    status = 200 if result.get("ok") else 409
-    return JSONResponse(content=result, status_code=status)
+    status_code = 200 if result.get("ok") else 409
+    return JSONResponse(content=result, status_code=status_code)
 
 
 def main() -> None:
     logger.info(
-        "starting windows-git-sync port=%s repo=%s branch=%s poll=%ss",
+        "starting %s port=%s repo=%s branch=%s poll=%ss",
+        SERVICE,
         PORT,
         REPO_ROOT,
         BRANCH,
