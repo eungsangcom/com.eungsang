@@ -55,6 +55,7 @@ services:
       HOLOGRAM_REPLY_MODEL: exaone-hologram
       ONTOLOGY_MCP_URL: http://ontology-mcp:8421
       CODE_RAG_URL: http://code-rag:8422
+      NOVEL_RAG_URL: http://novel-rag:8423
       WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
       ARTIMUSE_URL: ${ARTIMUSE_URL:-}
       ARTIMUSE_TIMEOUT_SEC: ${ARTIMUSE_TIMEOUT_SEC:-120}
