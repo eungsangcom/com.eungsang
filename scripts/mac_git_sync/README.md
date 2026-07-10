@@ -1,6 +1,6 @@
 # 맥북 git 자동 pull
 
-윈도우에서 push하면 맥북 `~/dev/com.eungsang`이 자동으로 `origin/main`을 따라갑니다.
+윈도우에서 push하면 맥북 `~/dev/com.eungsang`이 자동으로 `origin/macbook`을 따라갑니다.
 
 ## 동작
 

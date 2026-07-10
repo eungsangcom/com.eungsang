@@ -24,7 +24,7 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 
 export GIT_SYNC_REPO="${GIT_SYNC_REPO:-$REPO_ROOT}"
-export GIT_SYNC_BRANCH="${GIT_SYNC_BRANCH:-main}"
+export GIT_SYNC_BRANCH="${GIT_SYNC_BRANCH:-macbook}"
 export GIT_SYNC_POLL_SECONDS="${GIT_SYNC_POLL_SECONDS:-30}"
 export GIT_SYNC_PORT="${GIT_SYNC_PORT:-8427}"
 export GIT_SYNC_SERVICE="${GIT_SYNC_SERVICE:-mac-git-sync}"
