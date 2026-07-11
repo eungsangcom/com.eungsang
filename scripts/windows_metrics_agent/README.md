@@ -6,8 +6,11 @@
 
 ## Ollama·임베딩 작업 스케줄러 (원격 기동용)
 
+**먼저** `config.cmd` + `services\install_kure_deps.ps1` (아래 README 참고)
+
 ```powershell
 cd G:\project\com.eungsang\scripts\windows_metrics_agent\services
+# 상세: services\README.md
 Set-ExecutionPolicy -Scope Process Bypass
 .\install_service_tasks.ps1
 ```

@@ -1,7 +1,14 @@
 @echo off
 REM config.cmd.example -> config.cmd 로 복사
-REM 에이전트에는 PY(선택)와 포트만 넣으세요. .env 항목을 복사하지 마세요.
-REM 괄호가 있는 값은 반드시 set "KEY=value" 형태로 따옴표를 씁니다.
+REM 임베딩·메트릭 에이전트 공통 Python (Microsoft Store python 3.14 사용 금지)
 
-REM set "PY=C:\Users\YOUR_USER\miniconda3\python.exe"
-REM set "METRICS_AGENT_PORT=8425"
+REM GPU conda 환경 (base 또는 artimuse). Microsoft Store python 3.14 금지
+set "PY=C:\ProgramData\anaconda3\python.exe"
+REM set "PY=C:\ProgramData\anaconda3\envs\artimuse\python.exe"
+
+set "METRICS_AGENT_PORT=8425"
+set "METRICS_OLLAMA_PORT=11434"
+set "METRICS_EMBED_PORT=8420"
+
+REM 맥미니와 동일 값 (원격 기동 인증)
+REM set "WINDOWS_CONTROL_TOKEN=your-shared-secret"
