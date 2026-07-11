@@ -28,6 +28,7 @@ fi
 : "${SKIP_BUILD:=0}"
 : "${SKIP_ALEMBIC:=0}"
 : "${COMPOSE_FILE:=docker-compose.yaml}"
+: "${MACMINI_COMPOSE_PROJECT:=comeungsang}"
 
 resolve_backend_image() {
   if [[ -n "${MACMINI_BACKEND_IMAGE:-}" ]]; then
@@ -44,7 +45,7 @@ resolve_backend_image() {
 }
 
 macmini_compose_backend() {
-  macmini_exec "cd $(printf %q "$MACMINI_PROJECT_DIR") && docker compose -f $(printf %q "$MACMINI_PROJECT_DIR/$COMPOSE_FILE") $*"
+  macmini_exec "cd $(printf %q "$MACMINI_PROJECT_DIR") && COMPOSE_PROJECT_NAME=$(printf %q "$MACMINI_COMPOSE_PROJECT") docker compose -p $(printf %q "$MACMINI_COMPOSE_PROJECT") -f $(printf %q "$MACMINI_PROJECT_DIR/$COMPOSE_FILE") $*"
 }
 
 echo "==> 대상: $(macmini_is_local && echo '맥미니(로컬)' || echo "맥미니 SSH ($MACMINI_SSH_HOST)")"
