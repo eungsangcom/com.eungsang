@@ -33,6 +33,9 @@ app = FastAPI()
 _REPO_ROOT = Path(__file__).resolve().parent
 _CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", "").strip()
 _START_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_START_WAIT_SEC", "45"))
+_EMBED_START_WAIT_SEC = float(os.getenv("WINDOWS_EMBED_START_WAIT_SEC", "180"))
+_OLLAMA_START_WAIT_SEC = float(os.getenv("WINDOWS_OLLAMA_START_WAIT_SEC", "45"))
+_EMBED_START_BAT = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services" / "start_embedding.bat"
 
 # 윈도우에서 노출 중인 서비스 (포트 → 라벨)
 SERVICE_PORTS: list[tuple[str, int]] = [
@@ -51,10 +54,9 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         "label": "임베딩",
         "port": int(os.getenv("METRICS_EMBED_PORT", "8420")),
         "task": os.getenv("WINDOWS_EMBED_TASK", "Eungsang-KureEmbed").strip(),
-        "cmd": os.getenv(
-            "WINDOWS_EMBED_START_CMD",
-            f'"{sys.executable}" "{_REPO_ROOT / "windows_kure_embed_server.py"}"',
-        ).strip(),
+        "cmd": os.getenv("WINDOWS_EMBED_START_CMD", "").strip()
+        or (f'cmd /c "{_EMBED_START_BAT}"' if _EMBED_START_BAT.is_file() else "")
+        or f'"{sys.executable}" "{_REPO_ROOT / "windows_kure_embed_server.py"}"',
     },
 }
 
@@ -161,7 +163,7 @@ def _start_one_service(key: str) -> dict:
             "port": port,
         }
 
-    if _wait_port(port, timeout_sec=_START_WAIT_SEC):
+    if _wait_port(port, timeout_sec=_service_start_wait_sec(key)):
         return {
             "service": key,
             "label": label,
@@ -178,8 +180,18 @@ def _start_one_service(key: str) -> dict:
         "started": True,
         "method": method,
         "port": port,
-        "error": f"{label} 기동을 시도했지만 {int(_START_WAIT_SEC)}초 내 포트 {port} 응답이 없습니다.",
+        "error": f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다. services\\logs\\kure_embed.log 를 확인하세요."
+        if key == "embedding"
+        else f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다.",
     }
+
+
+def _service_start_wait_sec(key: str) -> float:
+    if key == "embedding":
+        return _EMBED_START_WAIT_SEC
+    if key == "ollama":
+        return _OLLAMA_START_WAIT_SEC
+    return _START_WAIT_SEC
 
 
 def _start_services(service: str) -> dict:
