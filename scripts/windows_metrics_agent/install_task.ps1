@@ -55,7 +55,17 @@ $Settings = New-ScheduledTaskSettingsSet `
 
 $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($existing) {
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
+    } catch {
+        Write-Host "Task already exists: $TaskName (skipping re-register — access denied)."
+        Write-Host "  The metrics agent task is already registered. Test with:"
+        Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"
+        Write-Host "  Invoke-WebRequest http://127.0.0.1:8425/health"
+        Write-Host ""
+        Write-Host "  To replace the task, run PowerShell as Administrator."
+        exit 0
+    }
 }
 
 Register-ScheduledTask `

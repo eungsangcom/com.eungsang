@@ -19,19 +19,181 @@ import platform
 import shutil
 import socket
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 import psutil
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
 
 app = FastAPI()
+
+_REPO_ROOT = Path(__file__).resolve().parent
+_CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", "").strip()
+_START_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_START_WAIT_SEC", "45"))
 
 # 윈도우에서 노출 중인 서비스 (포트 → 라벨)
 SERVICE_PORTS: list[tuple[str, int]] = [
     ("Ollama", int(os.getenv("METRICS_OLLAMA_PORT", "11434"))),
     ("임베딩", int(os.getenv("METRICS_EMBED_PORT", "8420"))),
 ]
+
+_SERVICE_CONFIG: dict[str, dict[str, object]] = {
+    "ollama": {
+        "label": "Ollama",
+        "port": int(os.getenv("METRICS_OLLAMA_PORT", "11434")),
+        "task": os.getenv("WINDOWS_OLLAMA_TASK", "Eungsang-Ollama").strip(),
+        "cmd": os.getenv("WINDOWS_OLLAMA_START_CMD", "").strip(),
+    },
+    "embedding": {
+        "label": "임베딩",
+        "port": int(os.getenv("METRICS_EMBED_PORT", "8420")),
+        "task": os.getenv("WINDOWS_EMBED_TASK", "Eungsang-KureEmbed").strip(),
+        "cmd": os.getenv(
+            "WINDOWS_EMBED_START_CMD",
+            f'"{sys.executable}" "{_REPO_ROOT / "windows_kure_embed_server.py"}"',
+        ).strip(),
+    },
+}
+
+
+class StartServiceRequest(BaseModel):
+    service: str = Field(..., description="ollama | embedding | all")
+
+
+def _assert_control_auth(authorization: str | None) -> None:
+    if not _CONTROL_TOKEN:
+        return
+    expected = f"Bearer {_CONTROL_TOKEN}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="인증 토큰이 올바르지 않습니다.")
+
+
+def _port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1.5):
+            return True
+    except OSError:
+        return False
+
+
+def _wait_port(port: int, *, timeout_sec: float) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if _port_open(port):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def _start_via_task(task_name: str) -> bool:
+    if not task_name or sys.platform != "win32":
+        return False
+    try:
+        proc = subprocess.run(
+            ["schtasks", "/Run", "/TN", task_name],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _start_via_cmd(command: str) -> bool:
+    if not command:
+        return False
+    try:
+        creationflags = 0
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        subprocess.Popen(
+            command,
+            shell=True,
+            cwd=str(_REPO_ROOT),
+            creationflags=creationflags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return True
+    except OSError:
+        return False
+
+
+def _start_one_service(key: str) -> dict:
+    config = _SERVICE_CONFIG.get(key)
+    if not config:
+        return {"service": key, "ok": False, "error": "알 수 없는 서비스입니다."}
+
+    label = str(config["label"])
+    port = int(config["port"])
+    if _port_open(port):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "alreadyRunning": True,
+            "port": port,
+        }
+
+    started = False
+    method = ""
+    task_name = str(config.get("task") or "")
+    cmd = str(config.get("cmd") or "")
+
+    if task_name and _start_via_task(task_name):
+        started = True
+        method = f"task:{task_name}"
+    elif cmd and _start_via_cmd(cmd):
+        started = True
+        method = "cmd"
+
+    if not started:
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "error": "기동 명령을 실행하지 못했습니다. 작업 스케줄러·PATH를 확인하세요.",
+            "port": port,
+        }
+
+    if _wait_port(port, timeout_sec=_START_WAIT_SEC):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "started": True,
+            "method": method,
+            "port": port,
+        }
+
+    return {
+        "service": key,
+        "label": label,
+        "ok": False,
+        "started": True,
+        "method": method,
+        "port": port,
+        "error": f"{label} 기동을 시도했지만 {int(_START_WAIT_SEC)}초 내 포트 {port} 응답이 없습니다.",
+    }
+
+
+def _start_services(service: str) -> dict:
+    key = service.strip().lower()
+    if key == "all":
+        results = [_start_one_service(name) for name in ("ollama", "embedding")]
+        ok = all(item.get("ok") for item in results)
+        return {"ok": ok, "results": results}
+
+    if key not in _SERVICE_CONFIG:
+        raise HTTPException(status_code=400, detail="service는 ollama, embedding, all 중 하나여야 합니다.")
+
+    result = _start_one_service(key)
+    return {"ok": bool(result.get("ok")), "results": [result]}
 
 
 def _round(value: float | None, digits: int = 1) -> float | None:
@@ -168,6 +330,15 @@ def metrics() -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/services/start")
+def start_services(
+    body: StartServiceRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    return _start_services(body.service)
 
 
 if __name__ == "__main__":

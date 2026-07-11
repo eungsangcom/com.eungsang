@@ -2,6 +2,19 @@
 
 설비실 대시보드용. CPU·RAM·디스크·GPU·서비스(Ollama/임베딩) 상태를 `:8425/metrics`로 노출.
 
+**원격 서비스 기동** (`POST /services/start`) — 맥미니·설비 담당 에이전트가 Tailscale로 Ollama/임베딩을 켤 수 있습니다.
+
+## Ollama·임베딩 작업 스케줄러 (원격 기동용)
+
+```powershell
+cd G:\project\com.eungsang\scripts\windows_metrics_agent\services
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_service_tasks.ps1
+```
+
+등록: `Eungsang-Ollama`, `Eungsang-KureEmbed`  
+맥미니 `.env` + 윈도우 환경 변수: `WINDOWS_CONTROL_TOKEN` (동일 값)
+
 ## 빠른 실행
 
 PowerShell (conda `artimuse` 등 — **권장**):
