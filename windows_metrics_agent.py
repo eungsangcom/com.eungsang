@@ -33,6 +33,7 @@ app = FastAPI()
 _REPO_ROOT = Path(__file__).resolve().parent
 _CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", "").strip()
 _START_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_START_WAIT_SEC", "45"))
+_STOP_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_STOP_WAIT_SEC", "30"))
 _EMBED_START_WAIT_SEC = float(os.getenv("WINDOWS_EMBED_START_WAIT_SEC", "180"))
 _OLLAMA_START_WAIT_SEC = float(os.getenv("WINDOWS_OLLAMA_START_WAIT_SEC", "45"))
 _EMBED_START_BAT = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services" / "start_embedding.bat"
@@ -65,6 +66,15 @@ class StartServiceRequest(BaseModel):
     service: str = Field(..., description="ollama | embedding | all")
 
 
+class StopServiceRequest(BaseModel):
+    service: str = Field(..., description="ollama | embedding | all")
+
+
+class PowerRequest(BaseModel):
+    delaySec: int = Field(default=60, ge=0, le=600, description="종료·재부팅까지 대기(초)")
+    force: bool = Field(default=False, description="실행 중인 앱 강제 종료 (shutdown 전용)")
+
+
 def _assert_control_auth(authorization: str | None) -> None:
     if not _CONTROL_TOKEN:
         return
@@ -88,6 +98,130 @@ def _wait_port(port: int, *, timeout_sec: float) -> bool:
             return True
         time.sleep(1.0)
     return False
+
+
+def _wait_port_closed(port: int, *, timeout_sec: float) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if not _port_open(port):
+            return True
+        time.sleep(1.0)
+    return False
+
+
+def _pids_listening_on_port(port: int) -> list[int]:
+    pids: set[int] = set()
+    try:
+        for conn in psutil.net_connections(kind="inet"):
+            laddr = conn.laddr
+            if not laddr or laddr.port != port:
+                continue
+            if conn.status != psutil.CONN_LISTEN:
+                continue
+            if conn.pid:
+                pids.add(conn.pid)
+    except (psutil.Error, PermissionError):
+        return []
+    return sorted(pids)
+
+
+def _kill_pid(pid: int) -> bool:
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return True
+    try:
+        proc.terminate()
+        proc.wait(timeout=8)
+        return True
+    except psutil.TimeoutExpired:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+            return True
+        except (psutil.Error, OSError):
+            return False
+    except (psutil.Error, OSError):
+        return False
+
+
+def _stop_one_service(key: str) -> dict:
+    config = _SERVICE_CONFIG.get(key)
+    if not config:
+        return {"service": key, "ok": False, "error": "알 수 없는 서비스입니다."}
+
+    label = str(config["label"])
+    port = int(config["port"])
+    if not _port_open(port):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "alreadyStopped": True,
+            "port": port,
+        }
+
+    pids = _pids_listening_on_port(port)
+    if not pids:
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "port": port,
+            "error": f"포트 {port}는 열려 있지만 프로세스를 찾지 못했습니다.",
+        }
+
+    killed: list[int] = []
+    failed: list[int] = []
+    for pid in pids:
+        if _kill_pid(pid):
+            killed.append(pid)
+        else:
+            failed.append(pid)
+
+    if failed:
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "port": port,
+            "killedPids": killed,
+            "error": f"일부 프로세스를 종료하지 못했습니다: {failed}",
+        }
+
+    if _wait_port_closed(port, timeout_sec=_STOP_WAIT_SEC):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "stopped": True,
+            "port": port,
+            "killedPids": killed,
+        }
+
+    return {
+        "service": key,
+        "label": label,
+        "ok": False,
+        "stopped": True,
+        "port": port,
+        "killedPids": killed,
+        "error": f"{label} 프로세스는 종료했지만 {int(_STOP_WAIT_SEC)}초 내 포트 {port}가 닫히지 않았습니다.",
+    }
+
+
+def _stop_services(service: str) -> dict:
+    key = service.strip().lower()
+    if key == "all":
+        results = [_stop_one_service(name) for name in ("embedding", "ollama")]
+        ok = all(item.get("ok") for item in results)
+        return {"ok": ok, "results": results}
+
+    if key not in _SERVICE_CONFIG:
+        raise HTTPException(status_code=400, detail="service는 ollama, embedding, all 중 하나여야 합니다.")
+
+    result = _stop_one_service(key)
+    return {"ok": bool(result.get("ok")), "results": [result]}
 
 
 def _start_via_task(task_name: str) -> bool:
@@ -344,6 +478,34 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+def _schedule_power(action: str, *, delay_sec: int, force: bool) -> dict:
+    if sys.platform != "win32":
+        raise HTTPException(status_code=501, detail="전원 제어는 윈도우에서만 지원합니다.")
+
+    flag = "/s" if action == "shutdown" else "/r"
+    args = ["shutdown", flag, "/t", str(delay_sec), "/c", "설비실 원격 전원 제어"]
+    if force and action == "shutdown":
+        args.append("/f")
+
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=20, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(status_code=500, detail=f"전원 명령 실행 실패: {exc}") from exc
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "shutdown 명령이 거부되었습니다.").strip()
+        raise HTTPException(status_code=500, detail=detail)
+
+    label = "종료" if action == "shutdown" else "재부팅"
+    return {
+        "ok": True,
+        "action": action,
+        "delaySec": delay_sec,
+        "force": force if action == "shutdown" else False,
+        "message": f"{label} 예약됨 ({delay_sec}초 후)",
+    }
+
+
 @app.post("/services/start")
 def start_services(
     body: StartServiceRequest,
@@ -351,6 +513,33 @@ def start_services(
 ) -> dict:
     _assert_control_auth(authorization)
     return _start_services(body.service)
+
+
+@app.post("/services/stop")
+def stop_services(
+    body: StopServiceRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    return _stop_services(body.service)
+
+
+@app.post("/power/shutdown")
+def power_shutdown(
+    body: PowerRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    return _schedule_power("shutdown", delay_sec=body.delaySec, force=body.force)
+
+
+@app.post("/power/reboot")
+def power_reboot(
+    body: PowerRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    return _schedule_power("reboot", delay_sec=body.delaySec, force=False)
 
 
 if __name__ == "__main__":

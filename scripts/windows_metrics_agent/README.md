@@ -2,7 +2,17 @@
 
 설비실 대시보드용. CPU·RAM·디스크·GPU·서비스(Ollama/임베딩) 상태를 `:8425/metrics`로 노출.
 
-**원격 서비스 기동** (`POST /services/start`) — 맥미니·설비 담당 에이전트가 Tailscale로 Ollama/임베딩을 켤 수 있습니다.
+**원격 서비스 기동·중지** (`POST /services/start`, `POST /services/stop`) — 맥미니·설비 담당 에이전트가 Tailscale로 Ollama/임베딩을 켜거나 끌 수 있습니다.
+
+## 원격 전원 제어
+
+`POST /power/shutdown`, `POST /power/reboot` — PC가 켜져 있을 때 Tailscale로 종료·재부팅 예약 (`WINDOWS_CONTROL_TOKEN`).
+
+맥미니 백엔드 `POST /facility/windows/power/wake` — WOL 매직 패킷 (`.env`의 `WINDOWS_WOL_MAC`, `WINDOWS_WOL_BROADCAST`).
+
+설비 담당 에이전트·설비실 대시보드(최고 관리자): "윈도우 PC 켜줘", "윈도우 재부팅해줘", "윈도우 PC 꺼줘".
+
+**WOL 전제:** BIOS Wake-on-LAN, 유선 LAN, 절전 시에도 WOL 허용. Tailscale만으로는 꺼진 PC를 깨울 수 없습니다.
 
 ## Ollama·임베딩 작업 스케줄러 (원격 기동용)
 
