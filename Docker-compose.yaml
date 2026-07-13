@@ -70,8 +70,8 @@ services:
     restart: on-failure:5
     volumes:
       - ${UPLOADS_HOST_PATH:-./eungsang/apps/uploads}:/app/apps/uploads
-      # 갤러리 삭제(super_admin)를 위해 rw — 컨테이너가 NAS photo 공유에 씀
-      - /Volumes/photo:/Volumes/photo
+      - /Volumes/photo:/Volumes/photo:ro
+      - ${BGM_HOST_PATH:-/Volumes/project/eungsang.com}:/Volumes/project/eungsang.com:ro
     networks:
       - app-network
 
