@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -98,6 +99,115 @@ def _git(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[
     )
 
 
+def _pids_on_port(port: int) -> list[int]:
+    if sys.platform == "win32":
+        try:
+            import psutil
+
+            pids: set[int] = set()
+            for conn in psutil.net_connections(kind="inet"):
+                if not conn.laddr or conn.laddr.port != port:
+                    continue
+                if conn.status != psutil.CONN_LISTEN:
+                    continue
+                if conn.pid:
+                    pids.add(conn.pid)
+            if pids:
+                return sorted(pids)
+        except Exception:
+            pass
+        try:
+            out = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            pids = set()
+            for line in out.stdout.splitlines():
+                upper = line.upper()
+                if f":{port}" not in line or "LISTENING" not in upper:
+                    continue
+                parts = line.split()
+                if parts and parts[-1].isdigit():
+                    pids.add(int(parts[-1]))
+            return sorted(pids)
+        except OSError:
+            return []
+
+    try:
+        out = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return [int(pid) for pid in out.stdout.split() if pid.strip().isdigit()]
+    except OSError:
+        return []
+
+
+def _kill_pid(pid: int) -> None:
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False, capture_output=True)
+        else:
+            os.kill(pid, 15)
+    except OSError:
+        pass
+
+
+def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
+    if previous == after:
+        return None
+
+    changed = _git(["diff", "--name-only", previous, after], check=False).stdout
+    if "windows_metrics_agent.py" not in changed:
+        return None
+
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    task_name = os.getenv("WINDOWS_METRICS_TASK", "Eungsang-WindowsMetricsAgent").strip()
+    killed = _pids_on_port(port)
+    for pid in killed:
+        _kill_pid(pid)
+    time.sleep(1.5)
+
+    restarted = False
+    if sys.platform == "win32" and task_name:
+        proc = subprocess.run(
+            ["schtasks", "/Run", "/TN", task_name],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        restarted = proc.returncode == 0
+
+    if not restarted:
+        agent_py = REPO_ROOT / "windows_metrics_agent.py"
+        if agent_py.is_file():
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            subprocess.Popen(
+                [sys.executable, str(agent_py)],
+                cwd=str(REPO_ROOT),
+                creationflags=creationflags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            restarted = True
+
+    info = {
+        "metricsAgentRestarted": restarted,
+        "metricsAgentPort": port,
+        "killedPids": killed,
+        "task": task_name or None,
+    }
+    logger.info("metrics agent restart: %s", info)
+    return info
+
+
 def _save_state(payload: dict) -> None:
     global _last
     _last = payload
@@ -156,6 +266,7 @@ def sync_repo(*, reason: str = "poll") -> dict:
             logger.info("submodules updated")
 
         after = _git(["rev-parse", "HEAD"]).stdout.strip()
+        restart_info = _restart_metrics_agent_if_needed(local, after)
         result = {
             "ok": True,
             "changed": True,
@@ -165,6 +276,8 @@ def sync_repo(*, reason: str = "poll") -> dict:
             "reason": reason,
             "synced_at": datetime.now(timezone.utc).isoformat(),
         }
+        if restart_info:
+            result["metricsAgent"] = restart_info
         _save_state(result)
         logger.info("sync done %s -> %s", local[:7], after[:7])
         return result
