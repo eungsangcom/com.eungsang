@@ -11,8 +11,8 @@ async def upsert_entity(pool, entity_id, entity_type, label,
                 (entity_id, entity_type, label, content, description, embedding, model_name, namespace, updated_at)
             VALUES ($1,$2,$3,$4,$5,$6::vector,$7,$8,now())
             ON CONFLICT (entity_id) DO UPDATE
-            SET label=$3, content=$4, description=$5,
-                embedding=$6::vector, model_name=$7, updated_at=now()
+            SET entity_type=$2, label=$3, content=$4, description=$5,
+                embedding=$6::vector, model_name=$7, namespace=$8, updated_at=now()
         """, entity_id, entity_type, label, content, description, str(emb[0]), model, namespace)
 
     # Neo4j 동기화
@@ -31,7 +31,45 @@ async def delete_entity(pool, entity_id: str):
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM ontology_relations WHERE from_id=$1 OR to_id=$1", entity_id)
         await conn.execute("DELETE FROM ontology_embeddings WHERE entity_id=$1", entity_id)
+    try:
+        await neo.delete_node(entity_id)
+    except Exception:
+        pass
     return {"entity_id": entity_id, "status": "deleted"}
+
+
+async def delete_entities_by_prefix(pool, namespace: str, prefix: str):
+    """Delete embeddings where namespace matches and entity_id starts with prefix."""
+    ns = (namespace or "").strip()
+    pref = (prefix or "").strip()
+    if not ns or not pref:
+        return {"deleted": 0, "status": "skipped"}
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT entity_id FROM ontology_embeddings
+            WHERE namespace=$1 AND entity_id LIKE $2
+            """,
+            ns,
+            f"{pref}%",
+        )
+        ids = [r["entity_id"] for r in rows]
+        if not ids:
+            return {"deleted": 0, "status": "ok"}
+        await conn.execute(
+            "DELETE FROM ontology_relations WHERE from_id = ANY($1::text[]) OR to_id = ANY($1::text[])",
+            ids,
+        )
+        await conn.execute(
+            "DELETE FROM ontology_embeddings WHERE entity_id = ANY($1::text[])",
+            ids,
+        )
+    for entity_id in ids:
+        try:
+            await neo.delete_node(entity_id)
+        except Exception:
+            pass
+    return {"deleted": len(ids), "status": "ok"}
 
 async def upsert_relation(pool, from_id, to_id, relation_type,
                            weight=1.0, properties={}, relation_id=None):
