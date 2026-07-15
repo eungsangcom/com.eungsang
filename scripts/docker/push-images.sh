@@ -22,8 +22,9 @@ build_push() {
 
 build_push eungsang-api ./eungsang
 build_push eungsang-ontology-mcp ./ontology_mcp
-build_push eungsang-code-rag ./code_rag
-build_push eungsang-novel-rag ./novel_rag
+build_push eungsang-code-rag ./rag_code
+build_push eungsang-novel-rag ./rag_novel
+build_push eungsang-books-rag ./rag_books
 build_push eungsang-n8n ./docker/n8n
 build_push eungsang-moderation -f eungsang/apps/moderation_service/Dockerfile ./eungsang
 

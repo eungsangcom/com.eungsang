@@ -23,6 +23,10 @@ services:
     image: eungsang/eungsang-novel-rag:${IMAGE_TAG:-latest}
     build: !reset null
 
+  books-rag:
+    image: eungsang/eungsang-books-rag:${IMAGE_TAG:-latest}
+    build: !reset null
+
   n8n:
     image: eungsang/eungsang-n8n:${IMAGE_TAG:-latest}
     build: !reset null
