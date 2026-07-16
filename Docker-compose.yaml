@@ -20,7 +20,9 @@
 #   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
 #   NEO4J_PASSWORD=...
 #   CLOUDFLARE_TUNNEL_TOKEN=...
-#   UPLOADS_HOST_PATH=/Volumes/project/eungsang.com/upload  (맥미니 NAS 마운트, 미설정 시 ./eungsang/apps/uploads)
+#   UPLOADS_HOST_PATH=/Volumes/project/eungsang.com/upload  (맥미니 NAS 마운트 rw, 미설정 시 ./eungsang/apps/uploads)
+#   BGM_HOST_PATH=/Volumes/project/eungsang.com  (NAS 루트 rw — bgm·intro·crawscrape 등)
+#   NAS_PHOTO_HOST_PATH=/Volumes/photo  (갤러리 사진 NAS rw)
 
 services:
 
@@ -64,6 +66,7 @@ services:
       WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
       ARTIMUSE_URL: ${ARTIMUSE_URL:-}
       ARTIMUSE_TIMEOUT_SEC: ${ARTIMUSE_TIMEOUT_SEC:-120}
+      STAR_CRAFT_CRAWLED_DIR: /Volumes/project/eungsang.com/crawscrape
     depends_on:
       redis:
         condition: service_healthy
@@ -74,8 +77,8 @@ services:
     restart: on-failure:5
     volumes:
       - ${UPLOADS_HOST_PATH:-./eungsang/apps/uploads}:/app/apps/uploads
-      - /Volumes/photo:/Volumes/photo:ro
-      - ${BGM_HOST_PATH:-/Volumes/project/eungsang.com}:/Volumes/project/eungsang.com:ro
+      - ${NAS_PHOTO_HOST_PATH:-/Volumes/photo}:/Volumes/photo
+      - ${BGM_HOST_PATH:-/Volumes/project/eungsang.com}:/Volumes/project/eungsang.com
     networks:
       - app-network
 
