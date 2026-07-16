@@ -30,3 +30,4 @@ build_push eungsang-moderation -f eungsang/apps/moderation_service/Dockerfile ./
 
 echo "==> done (tag=${IMAGE_TAG})"
 echo "맥미니: IMAGE_TAG=${IMAGE_TAG} ./scripts/docker/hub-pull-up.sh"
+echo "정리만: ./scripts/docker/macmini-prune.sh"

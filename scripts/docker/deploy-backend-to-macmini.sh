@@ -7,6 +7,7 @@
 #   ./scripts/docker/deploy-backend-to-macmini.sh
 #   SKIP_BUILD=1 ./scripts/docker/deploy-backend-to-macmini.sh   # 기존 로컬 이미지 재전송
 #   SKIP_ALEMBIC=1 ./scripts/docker/deploy-backend-to-macmini.sh
+#   SKIP_PRUNE=1 ./scripts/docker/deploy-backend-to-macmini.sh   # docker prune 생략
 #
 # 설정 (scripts/macmini.env):
 #   MACMINI_PROJECT_DIR=/Volumes/incloser/project/com.eungsang
@@ -88,5 +89,7 @@ fi
 echo "==> health"
 macmini_ssh 'zsh -lic "curl -sS -o /dev/null -w \"backend: %{http_code}\\n\" http://127.0.0.1:8000/"' || true
 macmini_ssh 'zsh -lic "docker logs eungsang-api --tail 12"'
+
+macmini_docker_prune
 
 echo "==> done"
