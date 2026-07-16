@@ -243,8 +243,7 @@ services:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
     networks:
-      app-network:
-        ipv4_address: 172.18.0.9
+      - app-network
 
   # ── Moderation API (8010→8000 · 콘텐츠 검수) ─
   moderation-api:
@@ -285,9 +284,11 @@ volumes:
   redis_data:
   neo4j_data:
 
+# 공유 네트워크는 compose가 재생성하지 않음.
+# (IPAM/subnet 불일치 시 `up --force-recreate backend` 가 네트워크 삭제에 실패하던 문제 방지)
+# 최초 1회: docker network create comeungsang_app-network
+# 배포 스크립트가 없으면 자동 생성함.
 networks:
   app-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16
+    name: comeungsang_app-network
+    external: true
