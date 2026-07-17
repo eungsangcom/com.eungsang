@@ -44,4 +44,5 @@ NIMA_URL=http://100.x.x.x:8428
 NIMA_TIMEOUT_SEC=120
 ```
 
-포토배틀 채점 우선순위: **NIMA → SigLIP → ArtiMuse → Gemini**.
+포토배틀 채점: backend `NIMA_URL=http://…:8427/nima` → SigLIP의 `POST /nima/score`가
+로컬 NIMA(`127.0.0.1:8428`)로 프록시한다. (Tailscale에서 8428이 막힌 경우 대비)

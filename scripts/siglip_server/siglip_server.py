@@ -14,16 +14,37 @@
   SIGLIP_PORT       기본 8427
   SIGLIP_LAZY_LOAD  기본 1
   SIGLIP_DTYPE      float16 | bfloat16 | float32 (기본: cuda면 float16)
+  HF_HOME           기본 G:\\hf_cache (윈도우 한글 경로 sentencepiece 오류 방지)
 """
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import os
 import threading
 from contextlib import asynccontextmanager
 from typing import Any
+
+# sentencepiece는 비ASCII 경로(한글 사용자명)에서 실패함 → ASCII 캐시 강제.
+# 사용자/시스템 env에 한글 경로가 있어도 무조건 덮어쓴다.
+_DEFAULT_HF_HOME = r"G:\hf_cache"
+os.environ["HF_HOME"] = _DEFAULT_HF_HOME
+os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "hub")
+os.environ["TRANSFORMERS_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "transformers")
+os.environ["HF_HUB_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "hub")
+# 기본 ~/.cache 폴백 차단
+os.environ.pop("XDG_CACHE_HOME", None)
+os.makedirs(_DEFAULT_HF_HOME, exist_ok=True)
+# huggingface_hub cache_dir = hub 루트 (models--* 가 바로 아래에 있어야 함)
+_CACHE_DIR = os.environ["HUGGINGFACE_HUB_CACHE"]
+_LOCAL_SNAPSHOT = os.path.join(
+    _CACHE_DIR,
+    "models--google--siglip-so400m-patch14-384",
+    "snapshots",
+    "9fdffc58afc957d1a03a25b10dba0329ab15c2a3",
+)
 
 import torch
 import uvicorn
@@ -36,7 +57,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("siglip_server")
 
 MODEL_ID = os.getenv("SIGLIP_MODEL_ID", "google/siglip-so400m-patch14-384").strip()
-DEVICE = os.getenv("SIGLIP_DEVICE", "").strip() or ("cuda:0" if torch.cuda.is_available() else "cpu")
+_DEVICE_RAW = os.getenv("SIGLIP_DEVICE", "").strip()
+if _DEVICE_RAW:
+    DEVICE = _DEVICE_RAW
+elif torch.cuda.is_available():
+    DEVICE = "cuda:0"
+else:
+    DEVICE = "cpu"
+# cuda 지정인데 빌드가 CPU-only면 폴백
+if DEVICE.startswith("cuda") and not torch.cuda.is_available():
+    logger.warning("[siglip] CUDA requested but unavailable; falling back to cpu")
+    DEVICE = "cpu"
 PORT = int(os.getenv("SIGLIP_PORT", "8427"))
 LAZY_LOAD = os.getenv("SIGLIP_LAZY_LOAD", "1").strip().lower() in {"1", "true", "yes", "on"}
 DTYPE_RAW = os.getenv("SIGLIP_DTYPE", "").strip().lower()
@@ -92,10 +123,27 @@ class SiglipEngine:
                 return
             from transformers import AutoModel, AutoProcessor
 
-            logger.info("[siglip] loading %s on %s dtype=%s", MODEL_ID, self.device, self.dtype)
-            processor = AutoProcessor.from_pretrained(MODEL_ID)
+            # processor는 ASCII 로컬 스냅샷 우선 (sentencepiece 한글 경로 버그 회피)
+            # model은 hub id + cache_dir로 받아 G:\hf_cache에 저장
+            proc_id = _LOCAL_SNAPSHOT if os.path.isfile(
+                os.path.join(_LOCAL_SNAPSHOT, "spiece.model")
+            ) else MODEL_ID
+            logger.info(
+                "[siglip] loading %s on %s dtype=%s cache=%s proc=%s",
+                MODEL_ID,
+                self.device,
+                self.dtype,
+                _CACHE_DIR,
+                proc_id,
+            )
+            processor = AutoProcessor.from_pretrained(
+                proc_id,
+                cache_dir=_CACHE_DIR,
+                local_files_only=proc_id == _LOCAL_SNAPSHOT,
+            )
             model = AutoModel.from_pretrained(
                 MODEL_ID,
+                cache_dir=_CACHE_DIR,
                 torch_dtype=self.dtype if self.device.startswith("cuda") else torch.float32,
             )
             model = model.to(self.device)
@@ -338,6 +386,50 @@ async def score(file: UploadFile = File(...)) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.exception("[siglip] score failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/nima/score")
+async def nima_score_proxy(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Tailscale ACL이 8428을 막을 수 있어, 열린 8427에서 로컬 NIMA(8428)로 프록시한다."""
+    import json
+    import urllib.error
+    import urllib.request
+    from concurrent.futures import ThreadPoolExecutor
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image")
+    nima_url = (os.getenv("NIMA_LOCAL_URL") or "http://127.0.0.1:8428").rstrip("/")
+    mime = file.content_type or "image/jpeg"
+    filename = file.filename or "photo.jpg"
+    boundary = "----NimaProxyBoundary7MA4YWxkTrZu0gW"
+
+    def _post() -> dict[str, Any]:
+        body = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            f"Content-Type: {mime}\r\n\r\n"
+        ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
+        req = urllib.request.Request(
+            f"{nima_url}/score",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        loop = asyncio.get_running_loop()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return await loop.run_in_executor(pool, _post)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        logger.exception("[siglip] nima proxy http error")
+        raise HTTPException(status_code=502, detail=f"NIMA proxy HTTP {exc.code}: {detail}") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[siglip] nima proxy failed")
+        raise HTTPException(status_code=502, detail=f"NIMA proxy failed: {exc}") from exc
 
 
 @app.post("/rank")
