@@ -121,19 +121,27 @@ class NimaEngine:
             else:
                 raw_f = float(raw)
 
-            # PyIQA retrained NIMA is typically [0, 1]; classic AVA MOS is ~[1, 10].
+            # PyIQA NIMA score_range 는 (0,10) / "0, 10" / (0,1) 등으로 올 수 있다.
             score_range = getattr(self.metric, "score_range", None)
-            low, high = 0.0, 1.0
-            if (
-                isinstance(score_range, (tuple, list))
-                and len(score_range) >= 2
-                and score_range[0] is not None
-                and score_range[1] is not None
-            ):
-                low, high = float(score_range[0]), float(score_range[1])
-            elif raw_f > 1.5:
-                # heuristic: AVA-style MOS
-                low, high = 1.0, 10.0
+            low, high = 0.0, 10.0  # AVA MOS 기본: 0~10 → overall 0~100
+            parsed: tuple[float, float] | None = None
+            if isinstance(score_range, (tuple, list)) and len(score_range) >= 2:
+                try:
+                    parsed = (float(score_range[0]), float(score_range[1]))
+                except (TypeError, ValueError):
+                    parsed = None
+            elif isinstance(score_range, str):
+                parts = [p.strip() for p in score_range.replace("~", ",").split(",") if p.strip()]
+                if len(parts) >= 2:
+                    try:
+                        parsed = (float(parts[0]), float(parts[1]))
+                    except ValueError:
+                        parsed = None
+            if parsed is not None:
+                low, high = parsed
+            elif raw_f <= 1.0:
+                # 정규화된 [0,1] 출력으로 본다
+                low, high = 0.0, 1.0
 
             span = max(1e-6, high - low)
             overall = (raw_f - low) / span * 100.0
