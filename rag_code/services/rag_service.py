@@ -74,7 +74,12 @@ async def generate_answer(query: str, hits: list[dict]) -> str:
     async with httpx.AsyncClient(timeout=180.0) as client:
         res = await client.post(
             f"{settings.ollama_host.rstrip('/')}/api/generate",
-            json={"model": settings.code_model, "prompt": prompt, "stream": False},
+            json={
+                "model": settings.code_model,
+                "prompt": prompt,
+                "stream": False,
+                "keep_alive": 0,
+            },
         )
         res.raise_for_status()
         return res.json().get("response", "").strip()
