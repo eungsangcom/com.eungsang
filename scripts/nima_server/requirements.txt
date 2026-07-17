@@ -1,0 +1,10 @@
+# NIMA HTTP 서버 의존성.
+# torch는 CUDA 버전에 맞춰 https://pytorch.org 에서 먼저 설치하세요.
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+fastapi
+uvicorn[standard]
+python-multipart
+Pillow
+timm
+pyiqa

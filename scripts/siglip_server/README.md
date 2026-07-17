@@ -46,5 +46,8 @@ SIGLIP_URL=http://100.x.x.x:8427
 SIGLIP_TIMEOUT_SEC=120
 ```
 
-포토배틀: `SIGLIP_URL`이 있으면 SigLIP 채점 우선, 실패 시 ArtiMuse/Gemini 폴백.
+포토배틀: `SIGLIP_URL`이 있으면 채점 체인에 포함(우선순위: NIMA → SigLIP → ArtiMuse → Gemini).
 갤러리 검색: `POST /gallery/index`, `GET /gallery/search`.
+
+백엔드가 `GALLERY_SIGLIP_AUTO_INDEX=1`(기본)이면 **10분마다** 미인덱싱 사진만 자동 인덱싱한다
+(`GALLERY_SIGLIP_AUTO_INDEX_INTERVAL_SEC=600`).
