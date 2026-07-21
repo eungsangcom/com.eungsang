@@ -93,6 +93,19 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
     },
 }
 
+# 8426 은 git sync 에이전트와 ArtiMuse가 공유 — 중지 시 cmdline 으로 구분
+_SERVICE_STOP_MATCH: dict[str, tuple[str, ...]] = {
+    "ollama": ("ollama",),
+    "embedding": ("kure_embed", "windows_kure_embed", "embed_server"),
+    "siglip": ("siglip_server", "siglip"),
+    "nima": ("nima_server", "nima"),
+    "artimuse": ("artimuse_server", "artimuse"),
+}
+
+_PORT_PROTECTED_MATCH: dict[int, tuple[str, ...]] = {
+    8426: ("windows_git_sync_agent", "git_sync", "git-sync"),
+}
+
 
 class StartServiceRequest(BaseModel):
     service: str = Field(
@@ -163,6 +176,40 @@ def _pids_listening_on_port(port: int) -> list[int]:
     return sorted(pids)
 
 
+def _process_signature(pid: int) -> str:
+    try:
+        proc = psutil.Process(pid)
+        parts = [proc.name(), *proc.cmdline()]
+        return " ".join(parts).lower()
+    except (psutil.Error, OSError):
+        return ""
+
+
+def _pids_for_service(key: str, port: int) -> list[int]:
+    """서비스별 프로세스만 선택 (공유 포트·다른 에이전트 제외)."""
+    listeners = _pids_listening_on_port(port)
+    if not listeners:
+        return []
+
+    match_patterns = _SERVICE_STOP_MATCH.get(key)
+    protected_patterns = _PORT_PROTECTED_MATCH.get(port, ())
+    selected: list[int] = []
+
+    for pid in listeners:
+        signature = _process_signature(pid)
+        if not signature:
+            continue
+        if protected_patterns and any(token in signature for token in protected_patterns):
+            continue
+        if match_patterns:
+            if any(token in signature for token in match_patterns):
+                selected.append(pid)
+            continue
+        selected.append(pid)
+
+    return selected
+
+
 def _kill_pid(pid: int) -> bool:
     try:
         proc = psutil.Process(pid)
@@ -199,14 +246,15 @@ def _stop_one_service(key: str) -> dict:
             "port": port,
         }
 
-    pids = _pids_listening_on_port(port)
+    pids = _pids_for_service(key, port)
     if not pids:
         return {
             "service": key,
             "label": label,
-            "ok": False,
+            "ok": True,
+            "alreadyStopped": True,
             "port": port,
-            "error": f"포트 {port}는 열려 있지만 프로세스를 찾지 못했습니다.",
+            "note": "포트는 사용 중이지만 해당 서비스 프로세스는 없습니다.",
         }
 
     killed: list[int] = []
@@ -235,6 +283,17 @@ def _stop_one_service(key: str) -> dict:
             "stopped": True,
             "port": port,
             "killedPids": killed,
+        }
+
+    if not _pids_for_service(key, port):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "stopped": True,
+            "port": port,
+            "killedPids": killed,
+            "note": f"{label} 프로세스는 종료했습니다. 포트 {port}는 다른 서비스가 사용 중일 수 있습니다.",
         }
 
     return {
