@@ -25,9 +25,10 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
 
 _HERE = Path(__file__).resolve().parent
@@ -81,6 +82,8 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(SERVICE)
+
+_CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", os.getenv("GIT_SYNC_CONTROL_TOKEN", "")).strip()
 
 app = FastAPI(title=SERVICE)
 _lock = threading.Lock()
@@ -157,22 +160,36 @@ def _kill_pid(pid: int) -> None:
         pass
 
 
-def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
-    if previous == after:
-        return None
+def _assert_control_auth(authorization: Optional[str]) -> None:
+    if not _CONTROL_TOKEN:
+        return
+    expected = f"Bearer {_CONTROL_TOKEN}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="인증 토큰이 올바르지 않습니다.")
 
-    changed = _git(["diff", "--name-only", previous, after], check=False).stdout
-    if "windows_metrics_agent.py" not in changed:
-        return None
 
+def _start_metrics_agent(*, force_restart: bool = False) -> dict:
+    """윈도우 메트릭 에이전트(:8425)를 작업 스케줄러 또는 직접 기동."""
     port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
     task_name = os.getenv("WINDOWS_METRICS_TASK", "Eungsang-WindowsMetricsAgent").strip()
-    killed = _pids_on_port(port)
-    for pid in killed:
-        _kill_pid(pid)
-    time.sleep(1.5)
+    wait_sec = float(os.getenv("METRICS_AGENT_START_WAIT_SEC", "45"))
 
-    restarted = False
+    pids = _pids_on_port(port)
+    if pids and not force_restart:
+        return {
+            "ok": True,
+            "alreadyRunning": True,
+            "port": port,
+            "pids": pids,
+        }
+
+    if pids:
+        for pid in pids:
+            _kill_pid(pid)
+        time.sleep(1.5)
+
+    started = False
+    method: str | None = None
     if sys.platform == "win32" and task_name:
         proc = subprocess.run(
             ["schtasks", "/Run", "/TN", task_name],
@@ -181,9 +198,11 @@ def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
             timeout=20,
             check=False,
         )
-        restarted = proc.returncode == 0
+        if proc.returncode == 0:
+            started = True
+            method = "scheduled-task"
 
-    if not restarted:
+    if not started:
         agent_py = REPO_ROOT / "windows_metrics_agent.py"
         if agent_py.is_file():
             creationflags = 0
@@ -196,13 +215,59 @@ def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            restarted = True
+            started = True
+            method = "direct"
 
+    if not started:
+        return {
+            "ok": False,
+            "error": "메트릭 에이전트 기동 방법을 찾지 못했습니다 (작업 스케줄러·windows_metrics_agent.py).",
+            "port": port,
+        }
+
+    deadline = time.time() + max(5.0, wait_sec)
+    while time.time() < deadline:
+        live = _pids_on_port(port)
+        if live:
+            return {
+                "ok": True,
+                "started": True,
+                "alreadyRunning": False,
+                "port": port,
+                "method": method,
+                "pids": live,
+            }
+        time.sleep(1.0)
+
+    return {
+        "ok": False,
+        "error": f"포트 {port}에서 메트릭 에이전트 응답 대기 시간 초과",
+        "port": port,
+        "method": method,
+    }
+
+
+def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
+    if previous == after:
+        return None
+
+    changed = _git(["diff", "--name-only", previous, after], check=False).stdout
+    if "windows_metrics_agent.py" not in changed:
+        return None
+
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    killed = _pids_on_port(port)
+    for pid in killed:
+        _kill_pid(pid)
+    time.sleep(1.5)
+
+    result = _start_metrics_agent(force_restart=True)
     info = {
-        "metricsAgentRestarted": restarted,
+        "metricsAgentRestarted": bool(result.get("ok")),
         "metricsAgentPort": port,
         "killedPids": killed,
-        "task": task_name or None,
+        "task": os.getenv("WINDOWS_METRICS_TASK", "Eungsang-WindowsMetricsAgent").strip() or None,
+        **{k: result[k] for k in ("method", "error") if k in result},
     }
     logger.info("metrics agent restart: %s", info)
     return info
@@ -327,6 +392,15 @@ def status() -> dict:
 def sync_now():
     result = sync_repo(reason="http")
     status_code = 200 if result.get("ok") else 409
+    return JSONResponse(content=result, status_code=status_code)
+
+
+@app.post("/services/metrics-agent/start")
+def start_metrics_agent(authorization: Optional[str] = Header(default=None)) -> dict:
+    """메트릭 에이전트(:8425) 기동 — 에이전트가 꺼져 있을 때 git sync 경유 원격 제어."""
+    _assert_control_auth(authorization)
+    result = _start_metrics_agent()
+    status_code = 200 if result.get("ok") else 503
     return JSONResponse(content=result, status_code=status_code)
 
 
