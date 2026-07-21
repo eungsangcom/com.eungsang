@@ -45,7 +45,7 @@ function Remove-StartTask {
     }
 }
 
-function Register-BootTask {
+function Register-LogonBootTask {
     param(
         [string]$Name,
         [string]$BatPath,
@@ -56,19 +56,12 @@ function Register-BootTask {
         throw "Batch not found: $BatPath"
     }
 
-    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-        [Security.Principal.WindowsBuiltInRole]::Administrator
-    )
-    if (-not $isAdmin) {
-        throw "Boot tasks require Administrator. Re-run PowerShell as admin."
-    }
-
     Remove-StartTask $Name
 
     $Action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$BatPath`"" -WorkingDirectory $ScriptDir
-    $TriggerObj = New-ScheduledTaskTrigger -AtStartup
+    $TriggerObj = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $TriggerObj.Delay = "PT${DelaySec}S"
-    $Principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+    $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
     $Settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
@@ -78,7 +71,7 @@ function Register-BootTask {
         -ExecutionTimeLimit ([TimeSpan]::Zero)
 
     Register-ScheduledTask -TaskName $Name -Action $Action -Trigger $TriggerObj -Principal $Principal -Settings $Settings -Description $Description | Out-Null
-    Write-Host "Registered (boot): $Name (delay ${DelaySec}s)"
+    Write-Host "Registered (logon): $Name (delay ${DelaySec}s, user=$env:USERNAME)"
 }
 
 function Register-ManualTask {
@@ -108,9 +101,10 @@ if ($Remove) {
     exit 0
 }
 
-Write-Host "==> Boot ON: Ollama, SigLIP, NIMA"
+Write-Host "==> Logon boot ON: Ollama, SigLIP, NIMA (interactive user — conda/CUDA PATH)"
+Write-Host "    Run bootstrap_gpu_config.ps1 first if config.cmd is missing."
 foreach ($task in $BootTasks) {
-    Register-BootTask -Name $task.Name -BatPath $task.Bat -Description $task.Description -DelaySec $task.Delay
+    Register-LogonBootTask -Name $task.Name -BatPath $task.Bat -Description $task.Description -DelaySec $task.Delay
 }
 
 Write-Host ""

@@ -2,7 +2,8 @@
 setlocal EnableExtensions
 set "SCRIPT_DIR=%~dp0"
 set "REPO_ROOT=%SCRIPT_DIR%..\..\.."
-set "RUN_BAT=%REPO_ROOT%\scripts\siglip_server\run_server.bat"
+set "SIGLIP_DIR=%REPO_ROOT%\scripts\siglip_server"
+set "RUN_BAT=%SIGLIP_DIR%\run_server.bat"
 set "LOG_DIR=%SCRIPT_DIR%logs"
 set "LOG_FILE=%LOG_DIR%\siglip.log"
 
@@ -13,5 +14,11 @@ if not exist "%RUN_BAT%" (
     exit /b 1
 )
 
+if not exist "%SIGLIP_DIR%\config.cmd" (
+    echo [%date% %time%] missing %SIGLIP_DIR%\config.cmd — run bootstrap_gpu_config.ps1 >> "%LOG_FILE%"
+    exit /b 1
+)
+
+echo [%date% %time%] Starting SigLIP >> "%LOG_FILE%"
 start "SigLIP" /MIN cmd /c ""%RUN_BAT%" >> "%LOG_FILE%" 2>&1"
 exit /b 0
