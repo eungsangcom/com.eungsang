@@ -42,6 +42,9 @@ _EMBED_START_BAT = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services"
 SERVICE_PORTS: list[tuple[str, int]] = [
     ("Ollama", int(os.getenv("METRICS_OLLAMA_PORT", "11434"))),
     ("임베딩", int(os.getenv("METRICS_EMBED_PORT", "8420"))),
+    ("SigLIP", int(os.getenv("METRICS_SIGLIP_PORT", "8437"))),
+    ("NIMA", int(os.getenv("METRICS_NIMA_PORT", "8428"))),
+    ("ArtiMuse", int(os.getenv("METRICS_ARTIMUSE_PORT", "8426"))),
 ]
 
 _SERVICE_CONFIG: dict[str, dict[str, object]] = {
