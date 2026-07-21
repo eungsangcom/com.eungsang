@@ -388,6 +388,55 @@ def _ensure_gpu_service_config(key: str) -> bool:
     return True
 
 
+def _bootstrap_gpu_services() -> dict:
+    results: list[dict] = []
+    ok = True
+    for key in ("siglip", "nima"):
+        label = str(_SERVICE_CONFIG[key]["label"])
+        if _ensure_gpu_service_config(key):
+            results.append({"service": key, "label": label, "ok": True, "configured": True})
+        else:
+            ok = False
+            results.append({
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": "GPU Python/config.cmd 를 찾지 못했습니다. bootstrap_gpu_config.ps1 를 실행하세요.",
+            })
+
+    tasks_script = _SERVICES_DIR / "install_service_tasks.ps1"
+    if sys.platform == "win32" and tasks_script.is_file():
+        try:
+            proc = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(tasks_script),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+                cwd=str(_SERVICES_DIR),
+            )
+            tasks_ok = proc.returncode == 0
+            ok = ok and tasks_ok
+            results.append({
+                "service": "tasks",
+                "label": "작업 스케줄러",
+                "ok": tasks_ok,
+                "error": None if tasks_ok else (proc.stderr or proc.stdout or "install_service_tasks.ps1 실패")[:500],
+            })
+        except (OSError, subprocess.SubprocessError) as exc:
+            ok = False
+            results.append({"service": "tasks", "label": "작업 스케줄러", "ok": False, "error": str(exc)})
+
+    return {"ok": ok, "results": results}
+
+
 def _start_via_task(task_name: str) -> bool:
     if not task_name or sys.platform != "win32":
         return False
@@ -672,6 +721,14 @@ def _schedule_power(action: str, *, delay_sec: int, force: bool) -> dict:
         "force": force if action == "shutdown" else False,
         "message": f"{label} 예약됨 ({delay_sec}초 후)",
     }
+
+
+@app.post("/services/bootstrap-gpu")
+def bootstrap_gpu_services(
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    return _bootstrap_gpu_services()
 
 
 @app.post("/services/start")

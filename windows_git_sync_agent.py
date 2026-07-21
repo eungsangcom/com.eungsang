@@ -309,21 +309,11 @@ def sync_repo(*, reason: str = "poll", force: bool = False) -> dict:
 
         dirty = _git(["status", "--porcelain"], check=False).stdout.strip()
         if dirty:
-            if not force:
-                logger.warning("dirty working tree; refusing pull")
-                result = {
-                    "ok": False,
-                    "changed": False,
-                    "error": "dirty working tree",
-                    "local": local,
-                    "remote": remote,
-                    "reason": reason,
-                    "synced_at": datetime.now(timezone.utc).isoformat(),
-                }
-                _save_state(result)
-                return result
             stash = _git(["stash", "push", "-u", "-m", f"git-sync auto-stash ({reason})"], check=False)
-            logger.warning("dirty working tree; stashed before pull: %s", (stash.stdout or stash.stderr).strip())
+            logger.warning(
+                "dirty working tree; stashed before pull: %s",
+                (stash.stdout or stash.stderr).strip(),
+            )
 
         pull = _git(["pull", "--ff-only", "origin", BRANCH])
         logger.info("pulled: %s", (pull.stdout or pull.stderr).strip())
