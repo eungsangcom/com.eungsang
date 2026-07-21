@@ -1,10 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  GPU 서비스 작업 스케줄러 등록 — 부팅 정책 + 원격 기동용.
+  GPU 서비스 작업 스케줄러 등록 — 로그온 자동 기동 + 원격 기동용.
 
-  부팅 시 자동 ON : Ollama, SigLIP, NIMA
+  로그온 시 자동 ON : Ollama, SigLIP, NIMA (interactive user — conda/CUDA)
   기본 OFF (수동/원격만): 임베딩
+
+  최초 1회: .\bootstrap_gpu_config.ps1 (config.cmd 생성 후 작업 재등록)
 
 .USAGE
   cd G:\project\com.eungsang\scripts\windows_metrics_agent\services

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -40,6 +41,35 @@ _SERVICES_DIR = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services"
 _EMBED_START_BAT = _SERVICES_DIR / "start_embedding.bat"
 _SIGLIP_START_BAT = _SERVICES_DIR / "start_siglip.bat"
 _NIMA_START_BAT = _SERVICES_DIR / "start_nima.bat"
+_AGENT_CONFIG_CMD = _SERVICES_DIR / "config.cmd"
+
+_GPU_CONFIG_DEFAULTS: dict[str, dict[str, str]] = {
+    "siglip": {
+        "dir": "siglip_server",
+        "vars": {
+            "SIGLIP_PORT": "8437",
+            "SIGLIP_DEVICE": "cuda:0",
+            "SIGLIP_LAZY_LOAD": "1",
+            "SIGLIP_DTYPE": "float16",
+            "HF_HOME": r"G:\hf_cache",
+        },
+    },
+    "nima": {
+        "dir": "nima_server",
+        "vars": {
+            "NIMA_DEVICE": "cuda:0",
+            "NIMA_METRIC": "nima",
+            "NIMA_PORT": "8428",
+            "NIMA_LAZY_LOAD": "1",
+            "NIMA_IDLE_UNLOAD_SEC": "300",
+        },
+    },
+}
+
+_GPU_PYTHON_CANDIDATES = (
+    r"C:\ProgramData\anaconda3\envs\artimuse\python.exe",
+    r"C:\ProgramData\anaconda3\python.exe",
+)
 
 SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding")
 _ALLOWED_SERVICES = frozenset({*SERVICE_KEYS, "all"})
@@ -317,6 +347,47 @@ def _stop_services(service: str) -> dict:
     return {"ok": ok, "results": results}
 
 
+def _read_py_from_agent_config() -> str | None:
+    if not _AGENT_CONFIG_CMD.is_file():
+        return None
+    for line in _AGENT_CONFIG_CMD.read_text(encoding="utf-8", errors="ignore").splitlines():
+        match = re.match(r'^\s*set\s+"?PY=(.+?)"?\s*$', line, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip().strip('"')
+    return None
+
+
+def _resolve_gpu_python() -> str | None:
+    py = _read_py_from_agent_config()
+    if py and Path(py).is_file():
+        return py
+    for candidate in _GPU_PYTHON_CANDIDATES:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _ensure_gpu_service_config(key: str) -> bool:
+    spec = _GPU_CONFIG_DEFAULTS.get(key)
+    if not spec:
+        return True
+
+    cfg_path = _REPO_ROOT / "scripts" / spec["dir"] / "config.cmd"
+    if cfg_path.is_file():
+        return True
+
+    py = _resolve_gpu_python()
+    if not py:
+        return False
+
+    lines = ["@echo off", f'set "PY={py}"']
+    for name, value in spec["vars"].items():
+        lines.append(f"set {name}={value}")
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text("\r\n".join(lines) + "\r\n", encoding="ascii")
+    return True
+
+
 def _start_via_task(task_name: str) -> bool:
     if not task_name or sys.platform != "win32":
         return False
@@ -360,6 +431,15 @@ def _start_one_service(key: str) -> dict:
 
     label = str(config["label"])
     port = int(config["port"])
+    if key in _GPU_CONFIG_DEFAULTS and not _ensure_gpu_service_config(key):
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "error": "GPU Python/config.cmd 를 찾지 못했습니다. bootstrap_gpu_config.ps1 를 실행하세요.",
+            "port": port,
+        }
+
     if _port_open(port):
         return {
             "service": key,
