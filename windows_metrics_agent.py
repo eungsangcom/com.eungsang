@@ -140,6 +140,10 @@ class StopServiceRequest(BaseModel):
     )
 
 
+class RunTaskRequest(BaseModel):
+    taskName: str = Field(..., description="Windows scheduled task name")
+
+
 class PowerRequest(BaseModel):
     delaySec: int = Field(default=60, ge=0, le=600, description="종료·재부팅까지 대기(초)")
     force: bool = Field(default=False, description="실행 중인 앱 강제 종료 (shutdown 전용)")
@@ -729,6 +733,35 @@ def bootstrap_gpu_services(
 ) -> dict:
     _assert_control_auth(authorization)
     return _bootstrap_gpu_services()
+
+
+@app.post("/services/run-task")
+def run_scheduled_task(
+    body: RunTaskRequest,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _assert_control_auth(authorization)
+    task_name = body.taskName.strip()
+    if not task_name:
+        raise HTTPException(status_code=400, detail="taskName 이 필요합니다.")
+    if sys.platform != "win32":
+        raise HTTPException(status_code=501, detail="작업 스케줄러는 윈도우에서만 지원합니다.")
+    try:
+        proc = subprocess.run(
+            ["schtasks", "/Run", "/TN", task_name],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(status_code=500, detail=f"작업 실행 실패: {exc}") from exc
+    ok = proc.returncode == 0
+    return {
+        "ok": ok,
+        "taskName": task_name,
+        "error": None if ok else (proc.stderr or proc.stdout or "schtasks /Run 실패").strip(),
+    }
 
 
 @app.post("/services/start")
