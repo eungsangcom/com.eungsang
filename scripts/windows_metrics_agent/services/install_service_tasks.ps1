@@ -37,13 +37,14 @@ $ManualTasks = @(
 
 function Remove-StartTask {
     param([string]$Name)
+    $null = schtasks /Delete /TN $Name /F 2>&1
     $existing = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
     if (-not $existing) { return }
     try {
         Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction Stop
         Write-Host "Removed: $Name"
     } catch {
-        Write-Warning "Could not remove $Name (access denied). Run as Administrator or the task owner."
+        Write-Warning "Could not remove $Name (access denied). Re-register with -Force or run PowerShell as Administrator."
     }
 }
 
@@ -72,8 +73,21 @@ function Register-LogonBootTask {
         -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit ([TimeSpan]::Zero)
 
-    Register-ScheduledTask -TaskName $Name -Action $Action -Trigger $TriggerObj -Principal $Principal -Settings $Settings -Description $Description | Out-Null
-    Write-Host "Registered (logon): $Name (delay ${DelaySec}s, user=$env:USERNAME)"
+    try {
+        Register-ScheduledTask `
+            -TaskName $Name `
+            -Action $Action `
+            -Trigger $TriggerObj `
+            -Principal $Principal `
+            -Settings $Settings `
+            -Description $Description `
+            -Force `
+            -ErrorAction Stop | Out-Null
+        Write-Host "Registered (logon): $Name (delay ${DelaySec}s, user=$env:USERNAME)"
+    } catch {
+        Write-Warning "Could not register $Name : $($_.Exception.Message)"
+        Write-Host "  Manual start: Start-ScheduledTask -TaskName '$Name'"
+    }
 }
 
 function Register-ManualTask {
@@ -92,8 +106,20 @@ function Register-ManualTask {
     $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
-    Register-ScheduledTask -TaskName $Name -Action $Action -Principal $Principal -Settings $Settings -Description $Description | Out-Null
-    Write-Host "Registered (manual): $Name"
+    try {
+        Register-ScheduledTask `
+            -TaskName $Name `
+            -Action $Action `
+            -Principal $Principal `
+            -Settings $Settings `
+            -Description $Description `
+            -Force `
+            -ErrorAction Stop | Out-Null
+        Write-Host "Registered (manual): $Name"
+    } catch {
+        Write-Warning "Could not register $Name : $($_.Exception.Message)"
+        Write-Host "  Manual start: Start-ScheduledTask -TaskName '$Name'"
+    }
 }
 
 if ($Remove) {
