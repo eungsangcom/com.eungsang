@@ -14,9 +14,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 | SigLIP | **자동 ON** | 8437 |
 | NIMA | **자동 ON** | 8428 |
 | 임베딩 (KURE) | 기본 OFF | 8420 |
-| ArtiMuse | 기본 OFF | 8426 |
 
-설비 담당 에이전트·맥미니 API로 원격 기동/중지: `ollama`, `siglip`, `nima`, `embedding`, `artimuse`, `all`
+설비 담당 에이전트·맥미니 API로 원격 기동/중지: `ollama`, `siglip`, `nima`, `embedding`, `all`
 
 예: "임베딩 켜줘", "SigLIP 꺼줘"
 

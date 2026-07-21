@@ -18,6 +18,7 @@ import socket
 import subprocess
 import time
 from pathlib import Path
+from typing import Optional
 
 import psutil
 import uvicorn
@@ -34,7 +35,7 @@ _EMBED_START_WAIT_SEC = float(os.getenv("MACBOOK_EMBED_START_WAIT_SEC", "180"))
 _OLLAMA_START_WAIT_SEC = float(os.getenv("MACBOOK_OLLAMA_START_WAIT_SEC", "45"))
 _START_WAIT_SEC = float(os.getenv("MACBOOK_SERVICE_START_WAIT_SEC", "90"))
 
-SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding", "artimuse")
+SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding")
 
 SERVICE_PORTS: list[tuple[str, int]] = [
     ("Ollama", int(os.getenv("METRICS_OLLAMA_PORT", "11434"))),
@@ -80,20 +81,14 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         ).strip(),
         "note": "SigLIP(8437) 프록시",
     },
-    "artimuse": {
-        "label": "ArtiMuse",
-        "port": int(os.getenv("METRICS_ARTIMUSE_PORT", "8426")),
-        "launchd": os.getenv("MACBOOK_ARTIMUSE_LAUNCHD", "").strip(),
-        "plist": os.getenv("MACBOOK_ARTIMUSE_PLIST", "").strip(),
-    },
 }
 
 
 class ServiceRequest(BaseModel):
-    service: str = Field(..., description="ollama | siglip | nima | embedding | artimuse | all")
+    service: str = Field(..., description="ollama | siglip | nima | embedding | all")
 
 
-def _assert_control_auth(authorization: str | None) -> None:
+def _assert_control_auth(authorization: Optional[str]) -> None:
     if not _CONTROL_TOKEN:
         return
     expected = f"Bearer {_CONTROL_TOKEN}"
@@ -237,7 +232,7 @@ def _resolve_service_keys(service: str) -> list[str]:
     if key not in _SERVICE_CONFIG:
         raise HTTPException(
             status_code=400,
-            detail="service는 ollama, siglip, nima, embedding, artimuse, all 중 하나여야 합니다.",
+            detail="service는 ollama, siglip, nima, embedding, all 중 하나여야 합니다.",
         )
     return [key]
 
@@ -261,7 +256,6 @@ def _service_start_wait_sec(key: str) -> float:
         "ollama": _OLLAMA_START_WAIT_SEC,
         "siglip": 120.0,
         "nima": 120.0,
-        "artimuse": 180.0,
     }
     return waits.get(key, _START_WAIT_SEC)
 
@@ -471,13 +465,13 @@ def health() -> dict:
 
 
 @app.post("/services/start")
-def start_services(body: ServiceRequest, authorization: str | None = Header(default=None)) -> dict:
+def start_services(body: ServiceRequest, authorization: Optional[str] = Header(default=None)) -> dict:
     _assert_control_auth(authorization)
     return _start_services(body.service)
 
 
 @app.post("/services/stop")
-def stop_services(body: ServiceRequest, authorization: str | None = Header(default=None)) -> dict:
+def stop_services(body: ServiceRequest, authorization: Optional[str] = Header(default=None)) -> dict:
     _assert_control_auth(authorization)
     return _stop_services(body.service)
 

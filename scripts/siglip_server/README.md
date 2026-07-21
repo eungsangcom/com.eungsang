@@ -7,7 +7,8 @@
 |------|--------|
 | 8420 | KURE 텍스트 임베딩 |
 | 8426 | ArtiMuse 심사 |
-| **8427** | **SigLIP** |
+| 8427 | mac_git_sync (맥북 전용, SigLIP 아님) |
+| **8437** | **SigLIP** (윈도우·맥북 공통) |
 
 ## API
 
@@ -36,17 +37,18 @@ copy config.cmd.example config.cmd
 헬스 확인:
 
 ```powershell
-curl http://127.0.0.1:8427/health
+curl http://127.0.0.1:8437/health
 ```
 
 ## 맥미니 backend `.env`
 
 ```env
-SIGLIP_URL=http://100.x.x.x:8427
+SIGLIP_URL=http://100.x.x.x:8437
+NIMA_URL=http://100.x.x.x:8437/nima
 SIGLIP_TIMEOUT_SEC=120
 ```
 
-포토배틀: `SIGLIP_URL`이 있으면 채점 체인에 포함(우선순위: NIMA → SigLIP → ArtiMuse → Gemini).
+포토배틀: `SIGLIP_URL`이 있으면 채점 체인에 포함(우선순위: NIMA → SigLIP → Gemini).
 갤러리 검색: `POST /gallery/index`, `GET /gallery/search`.
 
 백엔드가 `GALLERY_SIGLIP_AUTO_INDEX=1`(기본)이면 **10분마다** 미인덱싱 사진만 자동 인덱싱한다

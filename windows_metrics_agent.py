@@ -40,9 +40,8 @@ _SERVICES_DIR = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services"
 _EMBED_START_BAT = _SERVICES_DIR / "start_embedding.bat"
 _SIGLIP_START_BAT = _SERVICES_DIR / "start_siglip.bat"
 _NIMA_START_BAT = _SERVICES_DIR / "start_nima.bat"
-_ARTIMUSE_START_BAT = _SERVICES_DIR / "start_artimuse.bat"
 
-SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding", "artimuse")
+SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding")
 _ALLOWED_SERVICES = frozenset({*SERVICE_KEYS, "all"})
 
 # 윈도우에서 노출 중인 서비스 (포트 → 라벨)
@@ -51,7 +50,6 @@ SERVICE_PORTS: list[tuple[str, int]] = [
     ("임베딩", int(os.getenv("METRICS_EMBED_PORT", "8420"))),
     ("SigLIP", int(os.getenv("METRICS_SIGLIP_PORT", "8437"))),
     ("NIMA", int(os.getenv("METRICS_NIMA_PORT", "8428"))),
-    ("ArtiMuse", int(os.getenv("METRICS_ARTIMUSE_PORT", "8426"))),
 ]
 
 _SERVICE_CONFIG: dict[str, dict[str, object]] = {
@@ -84,22 +82,13 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         "cmd": os.getenv("WINDOWS_NIMA_START_CMD", "").strip()
         or (f'cmd /c "{_NIMA_START_BAT}"' if _NIMA_START_BAT.is_file() else ""),
     },
-    "artimuse": {
-        "label": "ArtiMuse",
-        "port": int(os.getenv("METRICS_ARTIMUSE_PORT", "8426")),
-        "task": os.getenv("WINDOWS_ARTIMUSE_TASK", "Eungsang-ArtiMuseServer").strip(),
-        "cmd": os.getenv("WINDOWS_ARTIMUSE_START_CMD", "").strip()
-        or (f'cmd /c "{_ARTIMUSE_START_BAT}"' if _ARTIMUSE_START_BAT.is_file() else ""),
-    },
 }
 
-# 8426 은 git sync 에이전트와 ArtiMuse가 공유 — 중지 시 cmdline 으로 구분
 _SERVICE_STOP_MATCH: dict[str, tuple[str, ...]] = {
     "ollama": ("ollama",),
     "embedding": ("kure_embed", "windows_kure_embed", "embed_server"),
     "siglip": ("siglip_server", "siglip"),
     "nima": ("nima_server", "nima"),
-    "artimuse": ("artimuse_server", "artimuse"),
 }
 
 _PORT_PROTECTED_MATCH: dict[int, tuple[str, ...]] = {
@@ -110,14 +99,14 @@ _PORT_PROTECTED_MATCH: dict[int, tuple[str, ...]] = {
 class StartServiceRequest(BaseModel):
     service: str = Field(
         ...,
-        description="ollama | siglip | nima | embedding | artimuse | all",
+        description="ollama | siglip | nima | embedding | all",
     )
 
 
 class StopServiceRequest(BaseModel):
     service: str = Field(
         ...,
-        description="ollama | siglip | nima | embedding | artimuse | all",
+        description="ollama | siglip | nima | embedding | all",
     )
 
 
@@ -314,7 +303,7 @@ def _resolve_service_keys(service: str) -> list[str]:
     if key not in _SERVICE_CONFIG:
         raise HTTPException(
             status_code=400,
-            detail="service는 ollama, siglip, nima, embedding, artimuse, all 중 하나여야 합니다.",
+            detail="service는 ollama, siglip, nima, embedding, all 중 하나여야 합니다.",
         )
     return [key]
 
@@ -430,7 +419,6 @@ def _service_start_wait_sec(key: str) -> float:
         "ollama": _OLLAMA_START_WAIT_SEC,
         "siglip": float(os.getenv("WINDOWS_SIGLIP_START_WAIT_SEC", "120")),
         "nima": float(os.getenv("WINDOWS_NIMA_START_WAIT_SEC", "120")),
-        "artimuse": float(os.getenv("WINDOWS_ARTIMUSE_START_WAIT_SEC", "180")),
     }
     return waits.get(key, _START_WAIT_SEC)
 

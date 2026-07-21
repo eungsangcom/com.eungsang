@@ -4,7 +4,7 @@
   GPU 서비스 작업 스케줄러 등록 — 부팅 정책 + 원격 기동용.
 
   부팅 시 자동 ON : Ollama, SigLIP, NIMA
-  기본 OFF (수동/원격만): 임베딩, ArtiMuse
+  기본 OFF (수동/원격만): 임베딩
 
 .USAGE
   cd G:\project\com.eungsang\scripts\windows_metrics_agent\services
@@ -30,8 +30,7 @@ $BootTasks = @(
 )
 
 $ManualTasks = @(
-    @{ Name = "Eungsang-KureEmbed"; Bat = Join-Path $ScriptDir "start_embedding.bat"; Description = "Eungsang — KURE embed server (port 8420, manual)" },
-    @{ Name = "Eungsang-ArtiMuseServer"; Bat = Join-Path $ScriptDir "start_artimuse.bat"; Description = "Eungsang — ArtiMuse server (port 8426, manual)" }
+    @{ Name = "Eungsang-KureEmbed"; Bat = Join-Path $ScriptDir "start_embedding.bat"; Description = "Eungsang — KURE embed server (port 8420, manual)" }
 )
 
 function Remove-StartTask {
@@ -115,7 +114,7 @@ foreach ($task in $BootTasks) {
 }
 
 Write-Host ""
-Write-Host "==> Default OFF (manual/remote): Embedding, ArtiMuse"
+Write-Host "==> Default OFF (manual/remote): Embedding"
 foreach ($task in $ManualTasks) {
     Register-ManualTask -Name $task.Name -BatPath $task.Bat -Description $task.Description
 }
@@ -124,4 +123,3 @@ Write-Host ""
 Write-Host "Boot policy applied. Repo: $RepoRoot"
 Write-Host "Manual start examples:"
 Write-Host "  Start-ScheduledTask -TaskName Eungsang-KureEmbed"
-Write-Host "  Start-ScheduledTask -TaskName Eungsang-ArtiMuseServer"

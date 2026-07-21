@@ -64,8 +64,6 @@ services:
       NOVEL_RAG_URL: http://novel-rag:8423
       BOOKS_RAG_URL: http://books-rag:8424
       WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
-      ARTIMUSE_URL: ${ARTIMUSE_URL:-}
-      ARTIMUSE_TIMEOUT_SEC: ${ARTIMUSE_TIMEOUT_SEC:-120}
       STAR_CRAFT_CRAWLED_DIR: /Volumes/project/eungsang.com/crawscrape
     depends_on:
       redis:
@@ -143,7 +141,9 @@ services:
 
   # ── Ontology MCP (8421 · Neo4j + pgvector + Windows embed) ─
   ontology-mcp:
-    build: ./ontology_mcp
+    build:
+      context: .
+      dockerfile: ontology_mcp/Dockerfile
     container_name: eungsang-ontology-mcp
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8421"]
     ports:
@@ -156,6 +156,11 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     depends_on:
       neo4j:
         condition: service_started
@@ -165,7 +170,9 @@ services:
 
   # ── Code RAG (8422 · PDF 임베딩 + pgvector + qwen2.5-coder) ─
   code-rag:
-    build: ./rag_code
+    build:
+      context: .
+      dockerfile: rag_code/Dockerfile
     container_name: eungsang-code-rag
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8422"]
     ports:
@@ -175,16 +182,23 @@ services:
     environment:
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
       EMBED_MODEL: kure
       OLLAMA_HOST: http://100.102.174.81:11434
       CODE_MODEL: qwen2.5-coder:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     restart: unless-stopped
     networks:
       - app-network
 
   # ── Novel RAG (8423 · 소설 로어·본문 + pgvector + qwen2.5) ─
   novel-rag:
-    build: ./rag_novel
+    build:
+      context: .
+      dockerfile: rag_novel/Dockerfile
     container_name: eungsang-novel-rag
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8423"]
     ports:
@@ -194,16 +208,23 @@ services:
     environment:
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
       EMBED_MODEL: kure
       OLLAMA_HOST: http://100.102.174.81:11434
       NOVEL_MODEL: qwen2.5:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     restart: unless-stopped
     networks:
       - app-network
 
   # ── Books RAG (8424 · 도서 PDF + pgvector + qwen2.5) ─
   books-rag:
-    build: ./rag_books
+    build:
+      context: .
+      dockerfile: rag_books/Dockerfile
     container_name: eungsang-books-rag
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8424"]
     ports:
@@ -213,9 +234,14 @@ services:
     environment:
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
       EMBED_MODEL: kure
       OLLAMA_HOST: http://100.102.174.81:11434
       BOOKS_MODEL: qwen2.5:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     restart: unless-stopped
     networks:
       - app-network
