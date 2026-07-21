@@ -36,7 +36,14 @@ _START_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_START_WAIT_SEC", "45"))
 _STOP_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_STOP_WAIT_SEC", "30"))
 _EMBED_START_WAIT_SEC = float(os.getenv("WINDOWS_EMBED_START_WAIT_SEC", "180"))
 _OLLAMA_START_WAIT_SEC = float(os.getenv("WINDOWS_OLLAMA_START_WAIT_SEC", "45"))
-_EMBED_START_BAT = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services" / "start_embedding.bat"
+_SERVICES_DIR = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services"
+_EMBED_START_BAT = _SERVICES_DIR / "start_embedding.bat"
+_SIGLIP_START_BAT = _SERVICES_DIR / "start_siglip.bat"
+_NIMA_START_BAT = _SERVICES_DIR / "start_nima.bat"
+_ARTIMUSE_START_BAT = _SERVICES_DIR / "start_artimuse.bat"
+
+SERVICE_KEYS: tuple[str, ...] = ("ollama", "siglip", "nima", "embedding", "artimuse")
+_ALLOWED_SERVICES = frozenset({*SERVICE_KEYS, "all"})
 
 # 윈도우에서 노출 중인 서비스 (포트 → 라벨)
 SERVICE_PORTS: list[tuple[str, int]] = [
@@ -52,7 +59,8 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         "label": "Ollama",
         "port": int(os.getenv("METRICS_OLLAMA_PORT", "11434")),
         "task": os.getenv("WINDOWS_OLLAMA_TASK", "Eungsang-Ollama").strip(),
-        "cmd": os.getenv("WINDOWS_OLLAMA_START_CMD", "").strip(),
+        "cmd": os.getenv("WINDOWS_OLLAMA_START_CMD", "").strip()
+        or (f'cmd /c "{_SERVICES_DIR / "start_ollama.bat"}"' if (_SERVICES_DIR / "start_ollama.bat").is_file() else ""),
     },
     "embedding": {
         "label": "임베딩",
@@ -62,15 +70,42 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         or (f'cmd /c "{_EMBED_START_BAT}"' if _EMBED_START_BAT.is_file() else "")
         or f'"{sys.executable}" "{_REPO_ROOT / "windows_kure_embed_server.py"}"',
     },
+    "siglip": {
+        "label": "SigLIP",
+        "port": int(os.getenv("METRICS_SIGLIP_PORT", "8437")),
+        "task": os.getenv("WINDOWS_SIGLIP_TASK", "Eungsang-SiglipServer").strip(),
+        "cmd": os.getenv("WINDOWS_SIGLIP_START_CMD", "").strip()
+        or (f'cmd /c "{_SIGLIP_START_BAT}"' if _SIGLIP_START_BAT.is_file() else ""),
+    },
+    "nima": {
+        "label": "NIMA",
+        "port": int(os.getenv("METRICS_NIMA_PORT", "8428")),
+        "task": os.getenv("WINDOWS_NIMA_TASK", "Eungsang-NimaServer").strip(),
+        "cmd": os.getenv("WINDOWS_NIMA_START_CMD", "").strip()
+        or (f'cmd /c "{_NIMA_START_BAT}"' if _NIMA_START_BAT.is_file() else ""),
+    },
+    "artimuse": {
+        "label": "ArtiMuse",
+        "port": int(os.getenv("METRICS_ARTIMUSE_PORT", "8426")),
+        "task": os.getenv("WINDOWS_ARTIMUSE_TASK", "Eungsang-ArtiMuseServer").strip(),
+        "cmd": os.getenv("WINDOWS_ARTIMUSE_START_CMD", "").strip()
+        or (f'cmd /c "{_ARTIMUSE_START_BAT}"' if _ARTIMUSE_START_BAT.is_file() else ""),
+    },
 }
 
 
 class StartServiceRequest(BaseModel):
-    service: str = Field(..., description="ollama | embedding | all")
+    service: str = Field(
+        ...,
+        description="ollama | siglip | nima | embedding | artimuse | all",
+    )
 
 
 class StopServiceRequest(BaseModel):
-    service: str = Field(..., description="ollama | embedding | all")
+    service: str = Field(
+        ...,
+        description="ollama | siglip | nima | embedding | artimuse | all",
+    )
 
 
 class PowerRequest(BaseModel):
@@ -213,18 +248,25 @@ def _stop_one_service(key: str) -> dict:
     }
 
 
-def _stop_services(service: str) -> dict:
+def _resolve_service_keys(service: str) -> list[str]:
     key = service.strip().lower()
     if key == "all":
-        results = [_stop_one_service(name) for name in ("embedding", "ollama")]
-        ok = all(item.get("ok") for item in results)
-        return {"ok": ok, "results": results}
-
+        return list(SERVICE_KEYS)
     if key not in _SERVICE_CONFIG:
-        raise HTTPException(status_code=400, detail="service는 ollama, embedding, all 중 하나여야 합니다.")
+        raise HTTPException(
+            status_code=400,
+            detail="service는 ollama, siglip, nima, embedding, artimuse, all 중 하나여야 합니다.",
+        )
+    return [key]
 
-    result = _stop_one_service(key)
-    return {"ok": bool(result.get("ok")), "results": [result]}
+
+def _stop_services(service: str) -> dict:
+    keys = _resolve_service_keys(service)
+    if service.strip().lower() == "all":
+        keys = list(reversed(keys))
+    results = [_stop_one_service(name) for name in keys]
+    ok = all(item.get("ok") for item in results)
+    return {"ok": ok, "results": results}
 
 
 def _start_via_task(task_name: str) -> bool:
@@ -324,25 +366,21 @@ def _start_one_service(key: str) -> dict:
 
 
 def _service_start_wait_sec(key: str) -> float:
-    if key == "embedding":
-        return _EMBED_START_WAIT_SEC
-    if key == "ollama":
-        return _OLLAMA_START_WAIT_SEC
-    return _START_WAIT_SEC
+    waits = {
+        "embedding": _EMBED_START_WAIT_SEC,
+        "ollama": _OLLAMA_START_WAIT_SEC,
+        "siglip": float(os.getenv("WINDOWS_SIGLIP_START_WAIT_SEC", "120")),
+        "nima": float(os.getenv("WINDOWS_NIMA_START_WAIT_SEC", "120")),
+        "artimuse": float(os.getenv("WINDOWS_ARTIMUSE_START_WAIT_SEC", "180")),
+    }
+    return waits.get(key, _START_WAIT_SEC)
 
 
 def _start_services(service: str) -> dict:
-    key = service.strip().lower()
-    if key == "all":
-        results = [_start_one_service(name) for name in ("ollama", "embedding")]
-        ok = all(item.get("ok") for item in results)
-        return {"ok": ok, "results": results}
-
-    if key not in _SERVICE_CONFIG:
-        raise HTTPException(status_code=400, detail="service는 ollama, embedding, all 중 하나여야 합니다.")
-
-    result = _start_one_service(key)
-    return {"ok": bool(result.get("ok")), "results": [result]}
+    keys = _resolve_service_keys(service)
+    results = [_start_one_service(name) for name in keys]
+    ok = all(item.get("ok") for item in results)
+    return {"ok": ok, "results": results}
 
 
 def _round(value: float | None, digits: int = 1) -> float | None:
