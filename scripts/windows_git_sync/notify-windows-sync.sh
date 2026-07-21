@@ -12,8 +12,13 @@ set -euo pipefail
 : "${WINDOWS_GIT_SYNC_URL:=http://100.102.174.81:8426/sync}"
 
 echo "==> POST $WINDOWS_GIT_SYNC_URL"
+FORCE_BODY='{}'
+if [[ "${FORCE_SYNC:-0}" == "1" ]]; then
+  FORCE_BODY='{"force":true}'
+fi
 curl -sS -X POST "$WINDOWS_GIT_SYNC_URL" \
   -H "Content-Type: application/json" \
+  -d "$FORCE_BODY" \
   -w "\nHTTP %{http_code}\n" \
   --connect-timeout 5 \
   --max-time 120 || {

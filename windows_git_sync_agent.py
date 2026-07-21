@@ -30,6 +30,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 _HERE = Path(__file__).resolve().parent
 
@@ -279,7 +280,7 @@ def _save_state(payload: dict) -> None:
     STATE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def sync_repo(*, reason: str = "poll") -> dict:
+def sync_repo(*, reason: str = "poll", force: bool = False) -> dict:
     if not _lock.acquire(blocking=False):
         return {"ok": False, "skipped": True, "reason": "busy"}
 
@@ -308,18 +309,21 @@ def sync_repo(*, reason: str = "poll") -> dict:
 
         dirty = _git(["status", "--porcelain"], check=False).stdout.strip()
         if dirty:
-            logger.warning("dirty working tree; refusing pull")
-            result = {
-                "ok": False,
-                "changed": False,
-                "error": "dirty working tree",
-                "local": local,
-                "remote": remote,
-                "reason": reason,
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-            }
-            _save_state(result)
-            return result
+            if not force:
+                logger.warning("dirty working tree; refusing pull")
+                result = {
+                    "ok": False,
+                    "changed": False,
+                    "error": "dirty working tree",
+                    "local": local,
+                    "remote": remote,
+                    "reason": reason,
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _save_state(result)
+                return result
+            stash = _git(["stash", "push", "-u", "-m", f"git-sync auto-stash ({reason})"], check=False)
+            logger.warning("dirty working tree; stashed before pull: %s", (stash.stdout or stash.stderr).strip())
 
         pull = _git(["pull", "--ff-only", "origin", BRANCH])
         logger.info("pulled: %s", (pull.stdout or pull.stderr).strip())
@@ -388,9 +392,14 @@ def status() -> dict:
     return {"ok": True, "message": "no sync yet", **_last}
 
 
+
+class SyncRequest(BaseModel):
+    force: bool = Field(default=False, description="dirty working tree 일 때 stash 후 pull")
+
+
 @app.post("/sync")
-def sync_now():
-    result = sync_repo(reason="http")
+def sync_now(body: SyncRequest = SyncRequest()):
+    result = sync_repo(reason="http", force=body.force)
     status_code = 200 if result.get("ok") else 409
     return JSONResponse(content=result, status_code=status_code)
 
