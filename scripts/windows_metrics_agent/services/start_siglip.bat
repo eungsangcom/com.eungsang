@@ -23,7 +23,9 @@ if not exist "%SIGLIP_DIR%\config.cmd" (
     if not exist "%SIGLIP_DIR%\config.cmd" exit /b 1
 )
 
-echo [%date% %time%] Starting SigLIP >> "%LOG_FILE%"
+call "%~dp0stop_siglip.bat"
+
+echo [%date% %time%] Starting SigLIP via %RUN_BAT% >> "%LOG_FILE%"
 REM run_server.bat 가 server.log 에 기록 — siglip.log 와 이중 append 하지 않음 (파일 잠금 방지)
-start "SigLIP" /MIN cmd /c ""%RUN_BAT%""
+start "" /MIN cmd /c call "%RUN_BAT%"
 exit /b 0

@@ -22,6 +22,7 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import psutil
@@ -120,6 +121,9 @@ _SERVICE_STOP_MATCH: dict[str, tuple[str, ...]] = {
     "siglip": ("siglip_server", "siglip"),
     "nima": ("nima_server", "nima"),
 }
+
+# 구버전 SigLIP(8427) — stop/start 시 함께 정리
+_SIGLIP_LEGACY_PORTS: tuple[int, ...] = (8427,)
 
 _PORT_PROTECTED_MATCH: dict[int, tuple[str, ...]] = {
     8426: ("windows_git_sync_agent", "git_sync", "git-sync"),
@@ -253,6 +257,16 @@ def _kill_pid(pid: int) -> bool:
         return False
 
 
+def _kill_siglip_legacy_listeners() -> list[int]:
+    """구버전 SigLIP(8427) 등 legacy 포트 리스너 종료."""
+    killed: list[int] = []
+    for port in _SIGLIP_LEGACY_PORTS:
+        for pid in _pids_for_service("siglip", port):
+            if _kill_pid(pid):
+                killed.append(pid)
+    return killed
+
+
 def _stop_one_service(key: str) -> dict:
     config = _SERVICE_CONFIG.get(key)
     if not config:
@@ -260,14 +274,23 @@ def _stop_one_service(key: str) -> dict:
 
     label = str(config["label"])
     port = int(config["port"])
+
+    legacy_killed: list[int] = []
+    if key == "siglip":
+        legacy_killed = _kill_siglip_legacy_listeners()
+
     if not _port_open(port):
-        return {
+        result: dict = {
             "service": key,
             "label": label,
             "ok": True,
             "alreadyStopped": True,
             "port": port,
         }
+        if legacy_killed:
+            result["killedLegacyPids"] = legacy_killed
+            result["note"] = f"legacy SigLIP 포트 {_SIGLIP_LEGACY_PORTS} 프로세스를 종료했습니다."
+        return result
 
     pids = _pids_for_service(key, port)
     if not pids:
@@ -299,7 +322,7 @@ def _stop_one_service(key: str) -> dict:
         }
 
     if _wait_port_closed(port, timeout_sec=_STOP_WAIT_SEC):
-        return {
+        result = {
             "service": key,
             "label": label,
             "ok": True,
@@ -307,9 +330,12 @@ def _stop_one_service(key: str) -> dict:
             "port": port,
             "killedPids": killed,
         }
+        if legacy_killed:
+            result["killedLegacyPids"] = legacy_killed
+        return result
 
     if not _pids_for_service(key, port):
-        return {
+        result = {
             "service": key,
             "label": label,
             "ok": True,
@@ -318,8 +344,11 @@ def _stop_one_service(key: str) -> dict:
             "killedPids": killed,
             "note": f"{label} 프로세스는 종료했습니다. 포트 {port}는 다른 서비스가 사용 중일 수 있습니다.",
         }
+        if legacy_killed:
+            result["killedLegacyPids"] = legacy_killed
+        return result
 
-    return {
+    result = {
         "service": key,
         "label": label,
         "ok": False,
@@ -328,6 +357,9 @@ def _stop_one_service(key: str) -> dict:
         "killedPids": killed,
         "error": f"{label} 프로세스는 종료했지만 {int(_STOP_WAIT_SEC)}초 내 포트 {port}가 닫히지 않았습니다.",
     }
+    if legacy_killed:
+        result["killedLegacyPids"] = legacy_killed
+    return result
 
 
 def _resolve_service_keys(service: str) -> list[str]:
@@ -342,11 +374,25 @@ def _resolve_service_keys(service: str) -> list[str]:
     return [key]
 
 
+def _run_service_actions(action_fn, keys: list[str]) -> list[dict]:
+    if not keys:
+        return []
+    if len(keys) == 1:
+        return [action_fn(keys[0])]
+    results: list[dict | None] = [None] * len(keys)
+    workers = min(4, len(keys))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(action_fn, key): idx for idx, key in enumerate(keys)}
+        for future in futures:
+            results[futures[future]] = future.result()
+    return [item for item in results if item is not None]
+
+
 def _stop_services(service: str) -> dict:
     keys = _resolve_service_keys(service)
     if service.strip().lower() == "all":
         keys = list(reversed(keys))
-    results = [_stop_one_service(name) for name in keys]
+    results = _run_service_actions(_stop_one_service, keys)
     ok = all(item.get("ok") for item in results)
     return {"ok": ok, "results": results}
 
@@ -484,6 +530,10 @@ def _start_one_service(key: str) -> dict:
 
     label = str(config["label"])
     port = int(config["port"])
+    legacy_killed: list[int] = []
+    if key == "siglip":
+        legacy_killed = _kill_siglip_legacy_listeners()
+
     if key in _GPU_CONFIG_DEFAULTS and not _ensure_gpu_service_config(key):
         return {
             "service": key,
@@ -542,6 +592,8 @@ def _start_one_service(key: str) -> dict:
         "port": port,
         "error": f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다. services\\logs\\kure_embed.log 를 확인하세요."
         if key == "embedding"
+        else f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다. scripts\\siglip_server\\logs\\server.log 와 services\\logs\\siglip.log 를 확인하세요."
+        if key == "siglip"
         else f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다.",
     }
 
@@ -558,7 +610,7 @@ def _service_start_wait_sec(key: str) -> float:
 
 def _start_services(service: str) -> dict:
     keys = _resolve_service_keys(service)
-    results = [_start_one_service(name) for name in keys]
+    results = _run_service_actions(_start_one_service, keys)
     ok = all(item.get("ok") for item in results)
     return {"ok": ok, "results": results}
 
