@@ -11,10 +11,10 @@
 환경변수:
   SIGLIP_MODEL_ID   기본 google/siglip-so400m-patch14-384
   SIGLIP_DEVICE     기본 cuda:0 (없으면 cpu)
-  SIGLIP_PORT       기본 8427
+  SIGLIP_PORT       기본 8437
   SIGLIP_LAZY_LOAD  기본 1
   SIGLIP_DTYPE      float16 | bfloat16 | float32 (기본: cuda면 float16)
-  HF_HOME           기본 G:\\hf_cache (윈도우 한글 경로 sentencepiece 오류 방지)
+  HF_HOME           기본 G:\\hf_cache (윈도우) / ~/.cache/eungsang-hf (macOS·Linux)
 """
 
 from __future__ import annotations
@@ -23,18 +23,26 @@ import asyncio
 import io
 import logging
 import os
+import platform
 import threading
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Optional
 
-# sentencepiece는 비ASCII 경로(한글 사용자명)에서 실패함 → ASCII 캐시 강제.
-# 사용자/시스템 env에 한글 경로가 있어도 무조건 덮어쓴다.
-_DEFAULT_HF_HOME = r"G:\hf_cache"
-os.environ["HF_HOME"] = _DEFAULT_HF_HOME
-os.environ["HUGGINGFACE_HUB_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "hub")
-os.environ["TRANSFORMERS_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "transformers")
-os.environ["HF_HUB_CACHE"] = os.path.join(_DEFAULT_HF_HOME, "hub")
-# 기본 ~/.cache 폴백 차단
+# sentencepiece는 비ASCII 경로(한글 사용자명)에서 실패할 수 있음 → HF_HOME 을 ASCII 경로로.
+def _resolve_hf_home() -> str:
+    raw = (os.getenv("HF_HOME") or "").strip()
+    if raw:
+        return raw
+    if platform.system() == "Windows":
+        return r"G:\hf_cache"
+    return os.path.join(os.path.expanduser("~"), ".cache", "eungsang-hf")
+
+
+_DEFAULT_HF_HOME = _resolve_hf_home()
+os.environ.setdefault("HF_HOME", _DEFAULT_HF_HOME)
+os.environ.setdefault("HUGGINGFACE_HUB_CACHE", os.path.join(_DEFAULT_HF_HOME, "hub"))
+os.environ.setdefault("TRANSFORMERS_CACHE", os.path.join(_DEFAULT_HF_HOME, "transformers"))
+os.environ.setdefault("HF_HUB_CACHE", os.path.join(_DEFAULT_HF_HOME, "hub"))
 os.environ.pop("XDG_CACHE_HOME", None)
 os.makedirs(_DEFAULT_HF_HOME, exist_ok=True)
 # huggingface_hub cache_dir = hub 루트 (models--* 가 바로 아래에 있어야 함)
@@ -62,13 +70,15 @@ if _DEVICE_RAW:
     DEVICE = _DEVICE_RAW
 elif torch.cuda.is_available():
     DEVICE = "cuda:0"
+elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+    DEVICE = "mps"
 else:
     DEVICE = "cpu"
 # cuda 지정인데 빌드가 CPU-only면 폴백
 if DEVICE.startswith("cuda") and not torch.cuda.is_available():
     logger.warning("[siglip] CUDA requested but unavailable; falling back to cpu")
     DEVICE = "cpu"
-PORT = int(os.getenv("SIGLIP_PORT", "8427"))
+PORT = int(os.getenv("SIGLIP_PORT", "8437"))
 LAZY_LOAD = os.getenv("SIGLIP_LAZY_LOAD", "1").strip().lower() in {"1", "true", "yes", "on"}
 DTYPE_RAW = os.getenv("SIGLIP_DTYPE", "").strip().lower()
 
@@ -157,7 +167,7 @@ class SiglipEngine:
                     padding="max_length",
                     return_tensors="pt",
                 )
-                inputs = {k: v.to(self.device) for k, v in inputs.items()}
+                inputs = self._prepare_inputs(inputs)
                 feats = model.get_text_features(**inputs)
                 tensor = self._as_tensor(feats)
                 self.dim = int(tensor.shape[-1])
@@ -176,6 +186,15 @@ class SiglipEngine:
             return pooler
         raise TypeError(f"Unexpected feature type: {type(feats)!r}")
 
+    def _prepare_inputs(self, inputs: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        prepared: dict[str, torch.Tensor] = {}
+        for key, value in inputs.items():
+            tensor = value.to(self.device)
+            if tensor.is_floating_point() and self.dtype != torch.float32:
+                tensor = tensor.to(dtype=self.dtype)
+            prepared[key] = tensor
+        return prepared
+
     @staticmethod
     def _normalize(x: torch.Tensor) -> torch.Tensor:
         return x / x.norm(p=2, dim=-1, keepdim=True).clamp_min(1e-12)
@@ -192,7 +211,7 @@ class SiglipEngine:
                 truncation=True,
                 return_tensors="pt",
             )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            inputs = self._prepare_inputs(inputs)
             feats = self._as_tensor(self.model.get_text_features(**inputs))
             if normalize:
                 feats = self._normalize(feats)
@@ -206,7 +225,7 @@ class SiglipEngine:
         rgb = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
         with self._lock, torch.inference_mode():
             inputs = self.processor(images=rgb, return_tensors="pt")
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            inputs = self._prepare_inputs(inputs)
             feats = self._as_tensor(self.model.get_image_features(**inputs))
             if normalize:
                 feats = self._normalize(feats)
@@ -227,7 +246,7 @@ class SiglipEngine:
                 truncation=True,
                 return_tensors="pt",
             )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            inputs = self._prepare_inputs(inputs)
             outputs = self.model(**inputs)
             logits = outputs.logits_per_image[0]  # (num_prompts,)
             probs = torch.sigmoid(logits)
@@ -252,7 +271,7 @@ class SiglipEngine:
                 truncation=True,
                 return_tensors="pt",
             )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            inputs = self._prepare_inputs(inputs)
             outputs = self.model(**inputs)
             logits = outputs.logits_per_image[0]
             probs = torch.sigmoid(logits)
@@ -302,8 +321,8 @@ def health() -> dict[str, Any]:
 
 @app.post("/embed")
 async def embed(
-    body: EmbedTextRequest | None = None,
-    files: list[UploadFile] | None = File(None),
+    body: Optional[EmbedTextRequest] = None,
+    files: Optional[list[UploadFile]] = File(None),
     normalize: bool = Form(True),
 ) -> JSONResponse:
     """텍스트 JSON 및/또는 multipart 이미지 임베딩.
@@ -390,7 +409,7 @@ async def score(file: UploadFile = File(...)) -> dict[str, Any]:
 
 @app.post("/nima/score")
 async def nima_score_proxy(file: UploadFile = File(...)) -> dict[str, Any]:
-    """Tailscale ACL이 8428을 막을 수 있어, 열린 8427에서 로컬 NIMA(8428)로 프록시한다."""
+    """Tailscale ACL이 8428을 막을 수 있어, 열린 8437에서 로컬 NIMA(8428)로 프록시한다."""
     import json
     import urllib.error
     import urllib.request
