@@ -37,7 +37,13 @@ $ManualTasks = @(
 
 function Remove-StartTask {
     param([string]$Name)
-    $null = schtasks /Delete /TN $Name /F 2>&1
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    try {
+        & schtasks.exe /Delete /TN $Name /F *> $null
+    } finally {
+        $ErrorActionPreference = $prev
+    }
     $existing = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
     if (-not $existing) { return }
     try {

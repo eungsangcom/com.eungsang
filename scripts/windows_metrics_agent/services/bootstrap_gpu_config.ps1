@@ -79,7 +79,11 @@ Write-Host "Wrote $nimaCfg"
 
 Write-Host ""
 Write-Host "==> Re-register GPU boot tasks (logon + delay)"
-& (Join-Path $ScriptDir "install_service_tasks.ps1")
+try {
+    & (Join-Path $ScriptDir "install_service_tasks.ps1")
+} catch {
+    Write-Warning "Task registration skipped (access denied). config.cmd is ready — run start_siglip.bat manually or re-run install_service_tasks.ps1 as Administrator."
+}
 
 Write-Host ""
 Write-Host "Test:"
