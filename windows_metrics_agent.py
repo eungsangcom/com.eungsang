@@ -293,16 +293,32 @@ def _gpus() -> list[dict]:
 
 def _services() -> list[dict]:
     rows: list[dict] = []
+    health_paths = {
+        "Ollama": "/api/tags",
+        "임베딩": "/health",
+        "SigLIP": "/health",
+        "NIMA": "/health",
+    }
     for label, port in SERVICE_PORTS:
         started = time.perf_counter()
         reachable = False
         latency_ms: int | None = None
+        path = health_paths.get(label, "/health")
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1.5):
-                reachable = True
-                latency_ms = int((time.perf_counter() - started) * 1000)
-        except OSError:
-            reachable = False
+            import urllib.error
+            import urllib.request
+
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1.5) as res:
+                reachable = res.status < 500
+                if reachable:
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+        except (OSError, urllib.error.URLError, ValueError):
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1.5):
+                    reachable = True
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+            except OSError:
+                reachable = False
         rows.append(
             {
                 "label": label,
