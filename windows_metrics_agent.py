@@ -135,6 +135,10 @@ class StartServiceRequest(BaseModel):
         ...,
         description="ollama | siglip | nima | embedding | all",
     )
+    wait: bool = Field(
+        default=True,
+        description="False면 기동 명령만 보내고 포트 응답 대기 생략 (채팅·터널 타임아웃 방지)",
+    )
 
 
 class StopServiceRequest(BaseModel):
@@ -523,7 +527,7 @@ def _start_via_cmd(command: str) -> bool:
         return False
 
 
-def _start_one_service(key: str) -> dict:
+def _start_one_service(key: str, *, wait: bool = True) -> dict:
     config = _SERVICE_CONFIG.get(key)
     if not config:
         return {"service": key, "ok": False, "error": "알 수 없는 서비스입니다."}
@@ -573,6 +577,17 @@ def _start_one_service(key: str) -> dict:
             "port": port,
         }
 
+    if not wait:
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "started": True,
+            "pending": True,
+            "method": method,
+            "port": port,
+        }
+
     if _wait_port(port, timeout_sec=_service_start_wait_sec(key)):
         return {
             "service": key,
@@ -608,9 +623,9 @@ def _service_start_wait_sec(key: str) -> float:
     return waits.get(key, _START_WAIT_SEC)
 
 
-def _start_services(service: str) -> dict:
+def _start_services(service: str, *, wait: bool = True) -> dict:
     keys = _resolve_service_keys(service)
-    results = _run_service_actions(_start_one_service, keys)
+    results = _run_service_actions(lambda key: _start_one_service(key, wait=wait), keys)
     ok = all(item.get("ok") for item in results)
     return {"ok": ok, "results": results}
 
@@ -822,7 +837,7 @@ def start_services(
     authorization: str | None = Header(default=None),
 ) -> dict:
     _assert_control_auth(authorization)
-    return _start_services(body.service)
+    return _start_services(body.service, wait=body.wait)
 
 
 @app.post("/services/stop")
