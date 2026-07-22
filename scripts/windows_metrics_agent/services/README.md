@@ -27,6 +27,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\services\install_siglip_deps.ps1
 
 cd services
+.\stop_siglip.bat
 Start-ScheduledTask -TaskName Eungsang-SiglipServer
 # 2~3분 후
 Invoke-WebRequest http://127.0.0.1:8437/health -UseBasicParsing

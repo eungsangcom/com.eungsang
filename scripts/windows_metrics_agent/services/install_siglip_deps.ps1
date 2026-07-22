@@ -6,6 +6,10 @@
 .USAGE
   cd G:\project\com.eungsang\scripts\windows_metrics_agent
   .\services\install_siglip_deps.ps1
+
+  PowerShell에서 PY 지정:
+  $env:PY = "C:\ProgramData\anaconda3\envs\artimuse\python.exe"
+  .\services\install_siglip_deps.ps1
 #>
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -17,8 +21,8 @@ $SiglipConfig = Join-Path $SiglipDir "config.cmd"
 function Read-PyFromConfigCmd {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $null }
-    cmd /c "`"$Path`" && set PY" | ForEach-Object {
-        if ($_ -match "^PY=(.+)$") { return $matches[1].Trim() }
+    foreach ($line in (cmd /c "`"$Path`" && set PY")) {
+        if ($line -match "^PY=(.+)$") { return $matches[1].Trim().Trim('"') }
     }
     return $null
 }
@@ -37,14 +41,52 @@ function Resolve-CondaPython {
     return $null
 }
 
-$python = Read-PyFromConfigCmd $ConfigCmd
-if (-not $python) { $python = Read-PyFromConfigCmd $SiglipConfig }
-if (-not $python) { $python = Resolve-CondaPython }
-if (-not $python -or -not (Test-Path $python)) {
-    throw "Python not found. Create config.cmd with set PY=... or activate conda (base/artimuse)."
+$python = $null
+if ($env:PY -and (Test-Path $env:PY)) {
+    $python = $env:PY
+}
+if (-not $python) {
+    $python = Read-PyFromConfigCmd -Path $ConfigCmd
+}
+if (-not $python) {
+    $python = Read-PyFromConfigCmd -Path $SiglipConfig
+}
+if (-not $python) {
+    $active = Get-Command python -ErrorAction SilentlyContinue
+    if ($active -and $active.Source -notmatch "WindowsApps|pythoncore") {
+        $python = $active.Source
+    }
+}
+if (-not $python) {
+    $python = Resolve-CondaPython
+}
+if (-not $python) {
+    $candidates = @(
+        "$env:ProgramData\anaconda3\envs\artimuse\python.exe",
+        "$env:ProgramData\Miniconda3\envs\artimuse\python.exe",
+        "$env:USERPROFILE\anaconda3\envs\artimuse\python.exe",
+        "$env:ProgramData\anaconda3\python.exe"
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            $python = $candidate
+            break
+        }
+    }
 }
 
-Write-Host "Using PY=$python"
+if (-not $python) {
+    Write-Host "Python not found. Run these and share output:" -ForegroundColor Yellow
+    Write-Host "  conda info --base"
+    Write-Host "  Get-Command python"
+    throw "Set PY in config.cmd or `$env:PY before running."
+}
+
+if ($python -match "WindowsApps|pythoncore") {
+    throw "Refusing Microsoft Store Python: $python`nUse conda: conda activate base"
+}
+
+Write-Host "Using: $python" -ForegroundColor Green
 Write-Host "==> pip install SigLIP server requirements"
 & $python -m pip install -r (Join-Path $SiglipDir "requirements.txt")
 Write-Host "==> verify imports (torch may take ~30s on first load)"
