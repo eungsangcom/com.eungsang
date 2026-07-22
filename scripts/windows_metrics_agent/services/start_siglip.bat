@@ -1,7 +1,6 @@
 @echo off
 setlocal EnableExtensions
 set "SCRIPT_DIR=%~dp0"
-set "AGENT_DIR=%SCRIPT_DIR%.."
 set "REPO_ROOT=%SCRIPT_DIR%..\..\.."
 set "SIGLIP_DIR=%REPO_ROOT%\scripts\siglip_server"
 set "RUN_BAT=%SIGLIP_DIR%\run_server.bat"
@@ -23,9 +22,21 @@ if not exist "%SIGLIP_DIR%\config.cmd" (
     if not exist "%SIGLIP_DIR%\config.cmd" exit /b 1
 )
 
+call "%~dp0..\config.cmd" 2>nul
+if exist "%SIGLIP_DIR%\config.cmd" call "%SIGLIP_DIR%\config.cmd"
+
+if not defined SIGLIP_PORT set "SIGLIP_PORT=8437"
+
+REM 이미 리스닝 중이면 재기동하지 않음 (로그 잠금·중복 프로세스 방지)
+powershell -NoProfile -Command ^
+  "if (Get-NetTCPConnection -LocalPort %SIGLIP_PORT% -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
+if not errorlevel 1 (
+    echo [%date% %time%] SigLIP already listening on port %SIGLIP_PORT% >> "%LOG_FILE%"
+    exit /b 0
+)
+
 call "%~dp0stop_siglip.bat"
 
-echo [%date% %time%] Starting SigLIP via %RUN_BAT% >> "%LOG_FILE%"
-REM run_server.bat 가 server.log 에 기록 — siglip.log 와 이중 append 하지 않음 (파일 잠금 방지)
-start "" /MIN cmd /c call "%RUN_BAT%"
+echo [%date% %time%] Starting SigLIP >> "%LOG_FILE%"
+start "SigLIP" /MIN cmd /c ""%RUN_BAT%" >> "%LOG_DIR%\siglip-run.log" 2>&1"
 exit /b 0

@@ -24,9 +24,12 @@ import io
 import logging
 import os
 import platform
+import sys
 import threading
 from contextlib import asynccontextmanager
 from typing import Any, Optional
+
+print("[siglip] bootstrapping...", flush=True)
 
 # sentencepiece는 비ASCII 경로(한글 사용자명)에서 실패할 수 있음 → HF_HOME 을 ASCII 경로로.
 def _resolve_hf_home() -> str:
@@ -54,7 +57,10 @@ _LOCAL_SNAPSHOT = os.path.join(
     "9fdffc58afc957d1a03a25b10dba0329ab15c2a3",
 )
 
+print("[siglip] importing torch...", flush=True)
 import torch
+
+print("[siglip] importing web stack...", flush=True)
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -479,4 +485,5 @@ async def rank(
 
 
 if __name__ == "__main__":
+    print(f"[siglip] uvicorn 0.0.0.0:{PORT} lazy_load={LAZY_LOAD} device={DEVICE}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

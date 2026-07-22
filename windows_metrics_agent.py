@@ -617,7 +617,7 @@ def _service_start_wait_sec(key: str) -> float:
     waits = {
         "embedding": _EMBED_START_WAIT_SEC,
         "ollama": _OLLAMA_START_WAIT_SEC,
-        "siglip": float(os.getenv("WINDOWS_SIGLIP_START_WAIT_SEC", "120")),
+        "siglip": float(os.getenv("WINDOWS_SIGLIP_START_WAIT_SEC", "180")),
         "nima": float(os.getenv("WINDOWS_NIMA_START_WAIT_SEC", "120")),
     }
     return waits.get(key, _START_WAIT_SEC)

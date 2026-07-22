@@ -19,6 +19,24 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 예: "임베딩 켜줘", "SigLIP 꺼줘"
 
+### SigLIP 기동 실패 시 (8437 응답 없음)
+
+```powershell
+cd G:\project\com.eungsang\scripts\windows_metrics_agent
+Set-ExecutionPolicy -Scope Process Bypass
+.\services\install_siglip_deps.ps1
+
+cd services
+Start-ScheduledTask -TaskName Eungsang-SiglipServer
+# 2~3분 후
+Invoke-WebRequest http://127.0.0.1:8437/health -UseBasicParsing
+
+# 로그
+type ..\..\siglip_server\logs\server.log
+type logs\siglip-run.log
+type logs\siglip.log
+```
+
 ---
 
 ## KURE 임베딩 (수동/원격)
