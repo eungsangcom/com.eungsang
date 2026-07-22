@@ -505,12 +505,51 @@ def restart_git_sync_agent(authorization: Optional[str] = Header(default=None)) 
     return {"ok": True, "restarting": True, "task": task_name or None, "port": port}
 
 
+def _stop_metrics_agent() -> dict:
+    """윈도우 메트릭 에이전트(:8425) 프로세스 중지."""
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    pids = _pids_on_port(port)
+    if not pids:
+        return {
+            "ok": True,
+            "alreadyStopped": True,
+            "port": port,
+            "killedPids": [],
+        }
+
+    killed: list[int] = []
+    for pid in pids:
+        _kill_pid(pid)
+        killed.append(pid)
+    time.sleep(1.0)
+
+    remaining = _pids_on_port(port)
+    return {
+        "ok": len(remaining) == 0,
+        "alreadyStopped": False,
+        "stopped": len(remaining) == 0,
+        "port": port,
+        "killedPids": killed,
+        "error": None if not remaining else f"포트 {port}에서 프로세스가 남아 있습니다.",
+    }
+
+
 @app.post("/services/metrics-agent/start")
 def start_metrics_agent(authorization: Optional[str] = Header(default=None)) -> dict:
     """메트릭 에이전트(:8425) 기동 — 에이전트가 꺼져 있을 때 git sync 경유 원격 제어."""
     if _CONTROL_TOKEN:
         _assert_control_auth(authorization)
     result = _start_metrics_agent()
+    status_code = 200 if result.get("ok") else 503
+    return JSONResponse(content=result, status_code=status_code)
+
+
+@app.post("/services/metrics-agent/stop")
+def stop_metrics_agent(authorization: Optional[str] = Header(default=None)) -> dict:
+    """메트릭 에이전트(:8425) 중지."""
+    if _CONTROL_TOKEN:
+        _assert_control_auth(authorization)
+    result = _stop_metrics_agent()
     status_code = 200 if result.get("ok") else 503
     return JSONResponse(content=result, status_code=status_code)
 
