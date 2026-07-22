@@ -47,3 +47,16 @@ macmini_docker() {
 macmini_compose() {
   macmini_exec "cd $(printf %q "$MACMINI_PROJECT_DIR") && docker compose -f $(printf %q "$MACMINI_PROJECT_DIR/$MACMINI_COMPOSE_FILE") $*"
 }
+
+# 중지된 컨테이너·미사용 이미지·네트워크·빌드 캐시 정리 (named volume 유지)
+# SKIP_PRUNE=1 이면 생략. 실패해도 배포를 깨지 않음.
+macmini_docker_prune() {
+  if [[ "${SKIP_PRUNE:-0}" == "1" ]]; then
+    echo "==> docker prune skipped (SKIP_PRUNE=1)"
+    return 0
+  fi
+  echo "==> macmini docker prune (unused containers/images/networks/build cache)"
+  if ! macmini_exec 'docker system prune -af'; then
+    echo "warn: docker prune failed (ignored)" >&2
+  fi
+}

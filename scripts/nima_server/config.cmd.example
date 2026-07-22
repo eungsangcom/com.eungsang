@@ -1,0 +1,10 @@
+@echo off
+REM 이 파일을 config.cmd 로 복사한 뒤 경로/옵션을 지정하세요.
+REM
+REM set "PY=C:\ProgramData\anaconda3\envs\nima\python.exe"
+REM
+REM set "NIMA_DEVICE=cuda:0"
+REM set "NIMA_METRIC=nima"
+REM set "NIMA_PORT=8428"
+REM set "NIMA_LAZY_LOAD=1"
+REM set "NIMA_IDLE_UNLOAD_SEC=300"

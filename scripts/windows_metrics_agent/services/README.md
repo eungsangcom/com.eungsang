@@ -1,4 +1,27 @@
-# KURE 임베딩 서비스 (윈도우)
+# GPU 서비스 (윈도우)
+
+## 부팅 정책 (1회 설치, 관리자 PowerShell)
+
+```powershell
+cd G:\project\com.eungsang\scripts\windows_metrics_agent\services
+Set-ExecutionPolicy -Scope Process Bypass
+.\install_service_tasks.ps1
+```
+
+| 서비스 | 부팅 시 | 포트 |
+|--------|---------|------|
+| Ollama | **자동 ON** | 11434 |
+| SigLIP | **자동 ON** | 8437 |
+| NIMA | **자동 ON** | 8428 |
+| 임베딩 (KURE) | 기본 OFF | 8420 |
+
+설비 담당 에이전트·맥미니 API로 원격 기동/중지: `ollama`, `siglip`, `nima`, `embedding`, `all`
+
+예: "임베딩 켜줘", "SigLIP 꺼줘"
+
+---
+
+## KURE 임베딩 (수동/원격)
 
 ## 1회 설정
 

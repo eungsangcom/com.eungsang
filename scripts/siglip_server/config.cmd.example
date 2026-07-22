@@ -1,0 +1,9 @@
+@echo off
+REM Copy to config.cmd and edit.
+
+REM set PY=C:\Users\you\miniconda3\python.exe
+set SIGLIP_PORT=8427
+set SIGLIP_MODEL_ID=google/siglip-so400m-patch14-384
+set SIGLIP_DEVICE=cuda:0
+set SIGLIP_LAZY_LOAD=1
+set SIGLIP_DTYPE=float16

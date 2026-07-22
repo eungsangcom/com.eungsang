@@ -32,6 +32,19 @@ async def upsert_node(entity_id, entity_type, label, content, namespace="default
              label=label, content=content, namespace=namespace)
     return {"entity_id": entity_id, "status": "upserted_neo4j"}
 
+
+async def delete_node(entity_id: str):
+    driver = await get_driver()
+    async with driver.session() as session:
+        await session.run(
+            """
+            MATCH (n:OntologyNode {entity_id: $entity_id})
+            DETACH DELETE n
+            """,
+            entity_id=entity_id,
+        )
+    return {"entity_id": entity_id, "status": "deleted_neo4j"}
+
 async def upsert_relationship(from_id, to_id, relation_type, weight=1.0):
     driver = await get_driver()
     async with driver.session() as session:

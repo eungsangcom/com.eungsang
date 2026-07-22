@@ -158,8 +158,14 @@ htmlcov/
 scripts/artimuse_server/logs/
 scripts/artimuse_server/config.cmd
 scripts/artimuse_server/config.ps1
+scripts/siglip_server/config.cmd
+scripts/nima_server/config.cmd
+scripts/windows_metrics_agent/config.cmd
 scripts/windows_git_sync/config.cmd
 scripts/windows_git_sync/logs/
 scripts/mac_git_sync/logs/
 scripts/windows_metrics_agent/logs/
+scripts/windows_metrics_agent/services/logs/
+scripts/siglip_server/logs/
+scripts/nima_server/logs/
 .DS_Store

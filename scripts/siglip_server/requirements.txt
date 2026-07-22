@@ -1,0 +1,12 @@
+# SigLIP HTTP 서버 의존성 (윈도우 GPU 권장)
+# torch는 CUDA 버전에 맞춰 https://pytorch.org 에서 먼저 설치.
+
+fastapi
+uvicorn[standard]
+python-multipart
+Pillow
+transformers>=4.41.0
+accelerate
+safetensors
+sentencepiece
+protobuf

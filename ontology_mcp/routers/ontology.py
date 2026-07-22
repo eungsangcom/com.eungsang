@@ -26,6 +26,14 @@ async def remove_entity(entity_id: str):
     pool = await get_pool()
     return await svc.delete_entity(pool, entity_id)
 
+
+@router.post("/entities/delete-by-prefix")
+async def remove_entities_by_prefix(body: dict):
+    pool = await get_pool()
+    namespace = str(body.get("namespace") or "").strip()
+    prefix = str(body.get("prefix") or "").strip()
+    return await svc.delete_entities_by_prefix(pool, namespace, prefix)
+
 @router.post("/relations")
 async def create_relation(body: RelationCreate):
     pool = await get_pool()

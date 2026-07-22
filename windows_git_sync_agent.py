@@ -20,14 +20,17 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 _HERE = Path(__file__).resolve().parent
 
@@ -81,6 +84,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(SERVICE)
 
+_CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", os.getenv("GIT_SYNC_CONTROL_TOKEN", "")).strip()
+
 app = FastAPI(title=SERVICE)
 _lock = threading.Lock()
 _last: dict = {}
@@ -98,13 +103,224 @@ def _git(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[
     )
 
 
+def _pids_on_port(port: int) -> list[int]:
+    if sys.platform == "win32":
+        try:
+            import psutil
+
+            pids: set[int] = set()
+            for conn in psutil.net_connections(kind="inet"):
+                if not conn.laddr or conn.laddr.port != port:
+                    continue
+                if conn.status != psutil.CONN_LISTEN:
+                    continue
+                if conn.pid:
+                    pids.add(conn.pid)
+            if pids:
+                return sorted(pids)
+        except Exception:
+            pass
+        try:
+            out = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            pids = set()
+            for line in out.stdout.splitlines():
+                upper = line.upper()
+                if f":{port}" not in line or "LISTENING" not in upper:
+                    continue
+                parts = line.split()
+                if parts and parts[-1].isdigit():
+                    pids.add(int(parts[-1]))
+            return sorted(pids)
+        except OSError:
+            return []
+
+    try:
+        out = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return [int(pid) for pid in out.stdout.split() if pid.strip().isdigit()]
+    except OSError:
+        return []
+
+
+def _kill_pid(pid: int) -> None:
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False, capture_output=True)
+        else:
+            os.kill(pid, 15)
+    except OSError:
+        pass
+
+
+def _dirty_files() -> list[str]:
+    out = _git(["status", "--porcelain"], check=False).stdout.strip()
+    if not out:
+        return []
+    return [line[3:].strip() for line in out.splitlines() if len(line) > 3]
+
+
+def _repo_sync_state() -> dict:
+    local = _git(["rev-parse", "HEAD"], check=False).stdout.strip()
+    _git(["fetch", "origin", BRANCH], check=False)
+    remote = _git(["rev-parse", f"origin/{BRANCH}"], check=False).stdout.strip()
+    dirty = _dirty_files()
+    return {
+        "local": local,
+        "remote": remote,
+        "behind": bool(local and remote and local != remote),
+        "dirtyWorkingTree": bool(dirty),
+        "dirtyCount": len(dirty),
+        "dirtyFiles": dirty[:25],
+    }
+
+
+def _stash_if_dirty(*, reason: str) -> dict:
+    dirty = _dirty_files()
+    if not dirty:
+        return {"ok": True, "stashed": False, "dirtyCount": 0, "dirtyFiles": []}
+    stash = _git(["stash", "push", "-u", "-m", f"git-sync auto-stash ({reason})"], check=False)
+    ok = stash.returncode == 0
+    remaining = _dirty_files()
+    return {
+        "ok": ok and not remaining,
+        "stashed": ok,
+        "dirtyCount": len(dirty),
+        "dirtyFiles": dirty[:25],
+        "remainingCount": len(remaining),
+        "stashOutput": (stash.stdout or stash.stderr).strip(),
+        "error": None if ok and not remaining else "stash 후에도 working tree가 남아 있습니다.",
+    }
+
+
+def _assert_control_auth(authorization: Optional[str]) -> None:
+    if not _CONTROL_TOKEN:
+        return
+    expected = f"Bearer {_CONTROL_TOKEN}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="인증 토큰이 올바르지 않습니다.")
+
+
+def _start_metrics_agent(*, force_restart: bool = False) -> dict:
+    """윈도우 메트릭 에이전트(:8425)를 작업 스케줄러 또는 직접 기동."""
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    task_name = os.getenv("WINDOWS_METRICS_TASK", "Eungsang-WindowsMetricsAgent").strip()
+    wait_sec = float(os.getenv("METRICS_AGENT_START_WAIT_SEC", "45"))
+
+    pids = _pids_on_port(port)
+    if pids and not force_restart:
+        return {
+            "ok": True,
+            "alreadyRunning": True,
+            "port": port,
+            "pids": pids,
+        }
+
+    if pids:
+        for pid in pids:
+            _kill_pid(pid)
+        time.sleep(1.5)
+
+    started = False
+    method: str | None = None
+    if sys.platform == "win32" and task_name:
+        proc = subprocess.run(
+            ["schtasks", "/Run", "/TN", task_name],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        if proc.returncode == 0:
+            started = True
+            method = "scheduled-task"
+
+    if not started:
+        agent_py = REPO_ROOT / "windows_metrics_agent.py"
+        if agent_py.is_file():
+            creationflags = 0
+            if sys.platform == "win32":
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            subprocess.Popen(
+                [sys.executable, str(agent_py)],
+                cwd=str(REPO_ROOT),
+                creationflags=creationflags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            started = True
+            method = "direct"
+
+    if not started:
+        return {
+            "ok": False,
+            "error": "메트릭 에이전트 기동 방법을 찾지 못했습니다 (작업 스케줄러·windows_metrics_agent.py).",
+            "port": port,
+        }
+
+    deadline = time.time() + max(5.0, wait_sec)
+    while time.time() < deadline:
+        live = _pids_on_port(port)
+        if live:
+            return {
+                "ok": True,
+                "started": True,
+                "alreadyRunning": False,
+                "port": port,
+                "method": method,
+                "pids": live,
+            }
+        time.sleep(1.0)
+
+    return {
+        "ok": False,
+        "error": f"포트 {port}에서 메트릭 에이전트 응답 대기 시간 초과",
+        "port": port,
+        "method": method,
+    }
+
+
+def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
+    if previous == after:
+        return None
+
+    changed = _git(["diff", "--name-only", previous, after], check=False).stdout
+    if "windows_metrics_agent.py" not in changed:
+        return None
+
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    killed = _pids_on_port(port)
+    for pid in killed:
+        _kill_pid(pid)
+    time.sleep(1.5)
+
+    result = _start_metrics_agent(force_restart=True)
+    info = {
+        "metricsAgentRestarted": bool(result.get("ok")),
+        "metricsAgentPort": port,
+        "killedPids": killed,
+        "task": os.getenv("WINDOWS_METRICS_TASK", "Eungsang-WindowsMetricsAgent").strip() or None,
+        **{k: result[k] for k in ("method", "error") if k in result},
+    }
+    logger.info("metrics agent restart: %s", info)
+    return info
+
+
 def _save_state(payload: dict) -> None:
     global _last
     _last = payload
     STATE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def sync_repo(*, reason: str = "poll") -> dict:
+def sync_repo(*, reason: str = "poll", force: bool = False) -> dict:
     if not _lock.acquire(blocking=False):
         return {"ok": False, "skipped": True, "reason": "busy"}
 
@@ -133,18 +349,20 @@ def sync_repo(*, reason: str = "poll") -> dict:
 
         dirty = _git(["status", "--porcelain"], check=False).stdout.strip()
         if dirty:
-            logger.warning("dirty working tree; refusing pull")
-            result = {
-                "ok": False,
-                "changed": False,
-                "error": "dirty working tree",
-                "local": local,
-                "remote": remote,
-                "reason": reason,
-                "synced_at": datetime.now(timezone.utc).isoformat(),
-            }
-            _save_state(result)
-            return result
+            stash_info = _stash_if_dirty(reason=reason)
+            if not stash_info.get("ok"):
+                result = {
+                    "ok": False,
+                    "changed": False,
+                    "error": stash_info.get("error") or "dirty working tree",
+                    "dirtyFiles": stash_info.get("dirtyFiles"),
+                    "local": local,
+                    "remote": remote,
+                    "reason": reason,
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                }
+                _save_state(result)
+                return result
 
         pull = _git(["pull", "--ff-only", "origin", BRANCH])
         logger.info("pulled: %s", (pull.stdout or pull.stderr).strip())
@@ -156,6 +374,7 @@ def sync_repo(*, reason: str = "poll") -> dict:
             logger.info("submodules updated")
 
         after = _git(["rev-parse", "HEAD"]).stdout.strip()
+        restart_info = _restart_metrics_agent_if_needed(local, after)
         result = {
             "ok": True,
             "changed": True,
@@ -165,6 +384,8 @@ def sync_repo(*, reason: str = "poll") -> dict:
             "reason": reason,
             "synced_at": datetime.now(timezone.utc).isoformat(),
         }
+        if restart_info:
+            result["metricsAgent"] = restart_info
         _save_state(result)
         logger.info("sync done %s -> %s", local[:7], after[:7])
         return result
@@ -205,15 +426,131 @@ def health() -> dict:
 
 @app.get("/status")
 def status() -> dict:
+    payload: dict = {"repo": str(REPO_ROOT), "branch": BRANCH}
+    payload.update(_repo_sync_state())
     if STATE_FILE.exists():
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    return {"ok": True, "message": "no sync yet", **_last}
+        payload.update(json.loads(STATE_FILE.read_text(encoding="utf-8")))
+    else:
+        payload.update({"ok": True, "message": "no sync yet", **_last})
+    return payload
+
+
+class SyncRequest(BaseModel):
+    force: bool = Field(default=False, description="dirty working tree 일 때 stash 후 pull")
+
+
+@app.post("/sync/stash")
+def stash_working_tree(authorization: Optional[str] = Header(default=None)) -> dict:
+    """로컬 변경을 stash — dirty working tree 해소."""
+    _assert_control_auth(authorization)
+    result = _stash_if_dirty(reason="http-stash")
+    status_code = 200 if result.get("ok") else 409
+    return JSONResponse(content=result, status_code=status_code)
 
 
 @app.post("/sync")
-def sync_now():
-    result = sync_repo(reason="http")
+def sync_now(body: SyncRequest = SyncRequest(), authorization: Optional[str] = Header(default=None)):
+    if _CONTROL_TOKEN:
+        _assert_control_auth(authorization)
+    if body.force:
+        stash = _stash_if_dirty(reason="http-force")
+        if not stash.get("ok") and stash.get("dirtyCount", 0) > 0:
+            return JSONResponse(
+                content={
+                    "ok": False,
+                    "changed": False,
+                    "error": stash.get("error") or "dirty working tree",
+                    "dirtyFiles": stash.get("dirtyFiles"),
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                },
+                status_code=409,
+            )
+    result = sync_repo(reason="http", force=body.force)
     status_code = 200 if result.get("ok") else 409
+    return JSONResponse(content=result, status_code=status_code)
+
+
+@app.post("/services/restart-self")
+def restart_git_sync_agent(authorization: Optional[str] = Header(default=None)) -> dict:
+    """git sync 에이전트 재시작 — 디스크의 최신 코드로 다시 로드."""
+    _assert_control_auth(authorization)
+    task_name = os.getenv("WINDOWS_GIT_SYNC_TASK", "Eungsang-WindowsGitSync").strip()
+    port = PORT
+
+    def _delayed_restart() -> None:
+        time.sleep(0.8)
+        for pid in _pids_on_port(port):
+            if pid != os.getpid():
+                _kill_pid(pid)
+        time.sleep(1.0)
+        if sys.platform == "win32" and task_name:
+            subprocess.run(
+                ["schtasks", "/Run", "/TN", task_name],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+        else:
+            agent_py = _HERE / "windows_git_sync_agent.py"
+            if agent_py.is_file():
+                subprocess.Popen(
+                    [sys.executable, str(agent_py)],
+                    cwd=str(REPO_ROOT),
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
+    threading.Thread(target=_delayed_restart, name="git-sync-restart", daemon=True).start()
+    return {"ok": True, "restarting": True, "task": task_name or None, "port": port}
+
+
+def _stop_metrics_agent() -> dict:
+    """윈도우 메트릭 에이전트(:8425) 프로세스 중지."""
+    port = int(os.getenv("METRICS_AGENT_PORT", "8425"))
+    pids = _pids_on_port(port)
+    if not pids:
+        return {
+            "ok": True,
+            "alreadyStopped": True,
+            "port": port,
+            "killedPids": [],
+        }
+
+    killed: list[int] = []
+    for pid in pids:
+        _kill_pid(pid)
+        killed.append(pid)
+    time.sleep(1.0)
+
+    remaining = _pids_on_port(port)
+    return {
+        "ok": len(remaining) == 0,
+        "alreadyStopped": False,
+        "stopped": len(remaining) == 0,
+        "port": port,
+        "killedPids": killed,
+        "error": None if not remaining else f"포트 {port}에서 프로세스가 남아 있습니다.",
+    }
+
+
+@app.post("/services/metrics-agent/start")
+def start_metrics_agent(authorization: Optional[str] = Header(default=None)) -> dict:
+    """메트릭 에이전트(:8425) 기동 — 에이전트가 꺼져 있을 때 git sync 경유 원격 제어."""
+    if _CONTROL_TOKEN:
+        _assert_control_auth(authorization)
+    result = _start_metrics_agent()
+    status_code = 200 if result.get("ok") else 503
+    return JSONResponse(content=result, status_code=status_code)
+
+
+@app.post("/services/metrics-agent/stop")
+def stop_metrics_agent(authorization: Optional[str] = Header(default=None)) -> dict:
+    """메트릭 에이전트(:8425) 중지."""
+    if _CONTROL_TOKEN:
+        _assert_control_auth(authorization)
+    result = _stop_metrics_agent()
+    status_code = 200 if result.get("ok") else 503
     return JSONResponse(content=result, status_code=status_code)
 
 

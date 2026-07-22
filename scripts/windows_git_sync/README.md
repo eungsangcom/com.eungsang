@@ -73,6 +73,7 @@ git push; .\scripts\windows_git_sync\notify-mac-sync.ps1
 | GET | `/health` | 에이전트 상태 |
 | GET | `/status` | 마지막 sync 결과 |
 | POST | `/sync` | 즉시 fetch/pull |
+| POST | `/services/metrics-agent/start` | 메트릭 에이전트(:8425) 기동 (Bearer `WINDOWS_CONTROL_TOKEN`) |
 
 ## 사전 조건 (윈도우)
 

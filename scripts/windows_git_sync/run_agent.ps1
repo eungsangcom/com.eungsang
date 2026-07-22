@@ -27,7 +27,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not $env:WINDOWS_GIT_SYNC_REPO) { $env:WINDOWS_GIT_SYNC_REPO = $RepoRoot }
-if (-not $env:WINDOWS_GIT_SYNC_BRANCH) { $env:WINDOWS_GIT_SYNC_BRANCH = "main" }
+if (-not $env:WINDOWS_GIT_SYNC_BRANCH) { $env:WINDOWS_GIT_SYNC_BRANCH = "winpc" }
 if (-not $env:WINDOWS_GIT_SYNC_POLL_SECONDS) { $env:WINDOWS_GIT_SYNC_POLL_SECONDS = "30" }
 if (-not $env:WINDOWS_GIT_SYNC_PORT) { $env:WINDOWS_GIT_SYNC_PORT = "8426" }
 if (-not $env:WINDOWS_GIT_SYNC_LOG_DIR) { $env:WINDOWS_GIT_SYNC_LOG_DIR = $LogDir }

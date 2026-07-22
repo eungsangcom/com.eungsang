@@ -10,7 +10,7 @@
 #   - backend (FastAPI 8000)  ← 맥미니 Docker
 #   - frontend (Next.js 3000) ← 프로필 local-frontend (프로덕션은 Vercel)
 #   - cloudflared             ← Vercel BACKEND_URL 노출
-#   - n8n · redis · neo4j · ontology-mcp · code-rag · novel-rag · moderation-api (DB: NAS pgvector 192.168.0.72:5433)
+#   - n8n · redis · neo4j · ontology-mcp · code-rag · novel-rag · books-rag · moderation-api (DB: NAS pgvector 192.168.0.72:5433)
 #
 # 사용 예:
 #   docker compose up -d                          # 맥미니·NAS 스택
@@ -20,7 +20,9 @@
 #   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
 #   NEO4J_PASSWORD=...
 #   CLOUDFLARE_TUNNEL_TOKEN=...
-#   UPLOADS_HOST_PATH=/Volumes/project/eungsang.com/upload  (맥미니 NAS 마운트, 미설정 시 ./eungsang/apps/uploads)
+#   UPLOADS_HOST_PATH=/Volumes/project/eungsang.com/upload  (맥미니 NAS 마운트 rw, 미설정 시 ./eungsang/apps/uploads)
+#   BGM_HOST_PATH=/Volumes/project/eungsang.com  (NAS 루트 rw — bgm·intro·crawscrape 등)
+#   NAS_PHOTO_HOST_PATH=/Volumes/photo  (갤러리 사진 NAS rw)
 
 services:
 
@@ -53,13 +55,16 @@ services:
       RELAY_SPAM_LEARN_INGEST: "true"
       N8N_FAKER_EMAIL_WEBHOOK_URL: http://n8n:5678/webhook/relay/faker-email
       OLLAMA_HOST: http://100.102.174.81:11434
-      HOLOGRAM_REPLY_MODEL: exaone-hologram
+      OLLAMA_CHAT_MODEL: exaone3.5:7.8b-instruct-q4_K_M
+      FAKER_ORCHESTRATOR_MODEL: exaone3.5:7.8b-instruct-q4_K_M
+      HOLOGRAM_ORCHESTRATOR_MODEL: exaone3.5:7.8b-instruct-q4_K_M
+      HUB_DISPATCH_MODEL: exaone3.5:7.8b-instruct-q4_K_M
       ONTOLOGY_MCP_URL: http://ontology-mcp:8421
       CODE_RAG_URL: http://code-rag:8422
       NOVEL_RAG_URL: http://novel-rag:8423
+      BOOKS_RAG_URL: http://books-rag:8424
       WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
-      ARTIMUSE_URL: ${ARTIMUSE_URL:-}
-      ARTIMUSE_TIMEOUT_SEC: ${ARTIMUSE_TIMEOUT_SEC:-120}
+      STAR_CRAFT_CRAWLED_DIR: /Volumes/project/eungsang.com/crawscrape
     depends_on:
       redis:
         condition: service_healthy
@@ -70,8 +75,8 @@ services:
     restart: on-failure:5
     volumes:
       - ${UPLOADS_HOST_PATH:-./eungsang/apps/uploads}:/app/apps/uploads
-      - /Volumes/photo:/Volumes/photo:ro
-      - ${BGM_HOST_PATH:-/Volumes/project/eungsang.com}:/Volumes/project/eungsang.com:ro
+      - ${NAS_PHOTO_HOST_PATH:-/Volumes/photo}:/Volumes/photo
+      - ${BGM_HOST_PATH:-/Volumes/project/eungsang.com}:/Volumes/project/eungsang.com
     networks:
       - app-network
 
@@ -136,7 +141,9 @@ services:
 
   # ── Ontology MCP (8421 · Neo4j + pgvector + Windows embed) ─
   ontology-mcp:
-    build: ./ontology_mcp
+    build:
+      context: .
+      dockerfile: ontology_mcp/Dockerfile
     container_name: eungsang-ontology-mcp
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8421"]
     ports:
@@ -149,6 +156,11 @@ services:
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     depends_on:
       neo4j:
         condition: service_started
@@ -158,7 +170,9 @@ services:
 
   # ── Code RAG (8422 · PDF 임베딩 + pgvector + qwen2.5-coder) ─
   code-rag:
-    build: ./code_rag
+    build:
+      context: .
+      dockerfile: rag_code/Dockerfile
     container_name: eungsang-code-rag
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8422"]
     ports:
@@ -168,16 +182,23 @@ services:
     environment:
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
       EMBED_MODEL: kure
       OLLAMA_HOST: http://100.102.174.81:11434
       CODE_MODEL: qwen2.5-coder:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     restart: unless-stopped
     networks:
       - app-network
 
   # ── Novel RAG (8423 · 소설 로어·본문 + pgvector + qwen2.5) ─
   novel-rag:
-    build: ./novel_rag
+    build:
+      context: .
+      dockerfile: rag_novel/Dockerfile
     container_name: eungsang-novel-rag
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8423"]
     ports:
@@ -187,9 +208,40 @@ services:
     environment:
       DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
       EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
       EMBED_MODEL: kure
       OLLAMA_HOST: http://100.102.174.81:11434
       NOVEL_MODEL: qwen2.5:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Books RAG (8424 · 도서 PDF + pgvector + qwen2.5) ─
+  books-rag:
+    build:
+      context: .
+      dockerfile: rag_books/Dockerfile
+    container_name: eungsang-books-rag
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8424"]
+    ports:
+      - "8424:8424"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DB_DSN: postgresql://eungsang:eung@192.168.0.72:5433/eungsang_DB
+      EMBED_URL: http://100.102.174.81:8420/embed
+      WINDOWS_EMBED_URL: http://100.102.174.81:8420/embed
+      EMBED_MODEL: kure
+      OLLAMA_HOST: http://100.102.174.81:11434
+      BOOKS_MODEL: qwen2.5:14b
+      GPU_FALLBACK_ENABLED: ${GPU_FALLBACK_ENABLED:-1}
+      MACBOOK_GPU_HOST: ${MACBOOK_GPU_HOST:-}
+      WINDOWS_METRICS_URL: ${WINDOWS_METRICS_URL:-http://100.102.174.81:8425/metrics}
+      GPU_FALLBACK_CACHE_SEC: ${GPU_FALLBACK_CACHE_SEC:-30}
     restart: unless-stopped
     networks:
       - app-network
@@ -217,8 +269,7 @@ services:
       - n8n_data:/home/node/.n8n
     restart: unless-stopped
     networks:
-      app-network:
-        ipv4_address: 172.18.0.9
+      - app-network
 
   # ── Moderation API (8010→8000 · 콘텐츠 검수) ─
   moderation-api:
@@ -259,9 +310,11 @@ volumes:
   redis_data:
   neo4j_data:
 
+# 공유 네트워크는 compose가 재생성하지 않음.
+# (IPAM/subnet 불일치 시 `up --force-recreate backend` 가 네트워크 삭제에 실패하던 문제 방지)
+# 최초 1회: docker network create comeungsang_app-network
+# 배포 스크립트가 없으면 자동 생성함.
 networks:
   app-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.18.0.0/16
+    name: comeungsang_app-network
+    external: true
