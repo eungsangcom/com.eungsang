@@ -48,10 +48,20 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
         "label": "Ollama",
         "port": int(os.getenv("METRICS_OLLAMA_PORT", "11434")),
         "launchd": os.getenv("MACBOOK_OLLAMA_LAUNCHD", "com.eungsang.macbook-ollama").strip(),
+        "launchd_labels": [
+            label
+            for label in [
+                os.getenv("MACBOOK_OLLAMA_LAUNCHD", "com.eungsang.macbook-ollama").strip(),
+                os.getenv("MACBOOK_OLLAMA_APP_LAUNCHD", "com.ollama.ollama").strip(),
+            ]
+            if label
+        ],
         "plist": os.getenv(
             "MACBOOK_OLLAMA_PLIST",
             str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-ollama.plist"),
         ).strip(),
+        "stop_killall": ["Ollama", "ollama"],
+        "start_app": os.getenv("MACBOOK_OLLAMA_START_APP", "Ollama").strip(),
     },
     "embedding": {
         "label": "임베딩",
@@ -225,6 +235,40 @@ def _launchd_stop(label: str) -> bool:
     return proc.returncode == 0
 
 
+def _launchd_labels_for_config(config: dict[str, object]) -> list[str]:
+    raw = config.get("launchd_labels")
+    if isinstance(raw, list):
+        labels = [str(item).strip() for item in raw if str(item).strip()]
+        if labels:
+            return labels
+    launchd = str(config.get("launchd") or "").strip()
+    return [launchd] if launchd else []
+
+
+def _launchd_bootout_all(config: dict[str, object]) -> bool:
+    plist = str(config.get("plist") or "")
+    primary = str(config.get("launchd") or "")
+    ok = True
+    for label in _launchd_labels_for_config(config):
+        label_plist = plist if label == primary else ""
+        ok = _launchd_bootout(label, label_plist) and ok
+    return ok
+
+
+def _killall_processes(names: list[str] | tuple[str, ...]) -> None:
+    for name in names:
+        if not name:
+            continue
+        subprocess.run(["killall", name], capture_output=True, timeout=10, check=False)
+
+
+def _start_ollama_app(app_name: str) -> bool:
+    if not app_name:
+        return False
+    proc = subprocess.run(["open", "-a", app_name], capture_output=True, text=True, timeout=15, check=False)
+    return proc.returncode == 0
+
+
 def _launchd_bootout(label: str, plist: str = "") -> bool:
     """KeepAlive launchd job을 내린다 — kill만으로는 즉시 재기동된다."""
     if not label:
@@ -327,13 +371,18 @@ def _start_one_service(key: str) -> dict:
         started = True
 
     if not started:
-        return {
-            "service": key,
-            "label": label,
-            "ok": False,
-            "error": "launchd 기동에 실패했습니다. install_*_launchd.sh 를 확인하세요.",
-            "port": port,
-        }
+        start_app = str(config.get("start_app") or "")
+        if key == "ollama" and start_app and _start_ollama_app(start_app):
+            method = f"open:{start_app}"
+            started = True
+        else:
+            return {
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": "launchd 기동에 실패했습니다. install_*_launchd.sh 를 확인하세요.",
+                "port": port,
+            }
 
     if _wait_port(port, timeout_sec=_service_start_wait_sec(key)):
         return {
@@ -386,7 +435,10 @@ def _stop_one_service(key: str) -> dict:
         }
 
     _launchd_stop(launchd)
-    booted_out = _launchd_bootout(launchd, plist)
+    booted_out = _launchd_bootout_all(config)
+    killall_names = config.get("stop_killall")
+    if isinstance(killall_names, list):
+        _killall_processes(killall_names)
     pids = _pids_listening_on_port(port)
     killed: list[int] = []
     failed: list[int] = []
