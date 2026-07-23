@@ -61,6 +61,7 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
             str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-ollama.plist"),
         ).strip(),
         "stop_killall": ["Ollama", "ollama"],
+        "stop_quit_app": os.getenv("MACBOOK_OLLAMA_START_APP", "Ollama").strip(),
         "start_app": os.getenv("MACBOOK_OLLAMA_START_APP", "Ollama").strip(),
     },
     "embedding": {
@@ -262,6 +263,22 @@ def _killall_processes(names: list[str] | tuple[str, ...]) -> None:
         subprocess.run(["killall", name], capture_output=True, timeout=10, check=False)
 
 
+def _quit_mac_app(app_name: str) -> None:
+    if not app_name:
+        return
+    subprocess.run(["killall", app_name], capture_output=True, timeout=5, check=False)
+    try:
+        subprocess.run(
+            ["osascript", "-e", f'tell application "{app_name}" to quit'],
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        pass
+    subprocess.run(["killall", "-9", app_name], capture_output=True, timeout=5, check=False)
+
+
 def _start_ollama_app(app_name: str) -> bool:
     if not app_name:
         return False
@@ -436,6 +453,9 @@ def _stop_one_service(key: str) -> dict:
 
     _launchd_stop(launchd)
     booted_out = _launchd_bootout_all(config)
+    quit_app = str(config.get("stop_quit_app") or "")
+    if quit_app:
+        _quit_mac_app(quit_app)
     killall_names = config.get("stop_killall")
     if isinstance(killall_names, list):
         _killall_processes(killall_names)
