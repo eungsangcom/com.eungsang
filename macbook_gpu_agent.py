@@ -225,6 +225,34 @@ def _launchd_stop(label: str) -> bool:
     return proc.returncode == 0
 
 
+def _launchd_bootout(label: str, plist: str = "") -> bool:
+    """KeepAlive launchd job을 내린다 — kill만으로는 즉시 재기동된다."""
+    if not label:
+        return False
+    if not _launchd_loaded(label):
+        return True
+    subprocess.run(["launchctl", "disable", _launchd_target(label)], capture_output=True, check=False)
+    proc = subprocess.run(
+        ["launchctl", "bootout", _launchd_target(label)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if proc.returncode == 0:
+        return True
+    if plist and Path(plist).is_file():
+        fallback = subprocess.run(
+            ["launchctl", "bootout", _LAUNCHD_DOMAIN, plist],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        return fallback.returncode == 0
+    return False
+
+
 def _resolve_service_keys(service: str) -> list[str]:
     key = service.strip().lower()
     if key == "all":
@@ -336,6 +364,7 @@ def _stop_one_service(key: str) -> dict:
     label = str(config["label"])
     port = int(config["port"])
     launchd = str(config.get("launchd") or "")
+    plist = str(config.get("plist") or "")
 
     if not launchd:
         return {
@@ -357,6 +386,7 @@ def _stop_one_service(key: str) -> dict:
         }
 
     _launchd_stop(launchd)
+    booted_out = _launchd_bootout(launchd, plist)
     pids = _pids_listening_on_port(port)
     killed: list[int] = []
     failed: list[int] = []
@@ -384,6 +414,7 @@ def _stop_one_service(key: str) -> dict:
             "stopped": True,
             "port": port,
             "killedPids": killed,
+            "launchdBootout": booted_out,
         }
 
     return {
@@ -393,6 +424,7 @@ def _stop_one_service(key: str) -> dict:
         "stopped": True,
         "port": port,
         "killedPids": killed,
+        "launchdBootout": booted_out,
         "error": f"{label} 프로세스는 종료했지만 {int(_STOP_WAIT_SEC)}초 내 포트 {port}가 닫히지 않았습니다.",
     }
 
