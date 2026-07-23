@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 app = FastAPI()
 
 _REPO_ROOT = Path(__file__).resolve().parent
+_MACBOOK_GPU_SCRIPTS = _REPO_ROOT / "scripts" / "macbook_gpu"
 _CONTROL_TOKEN = os.getenv("MACBOOK_CONTROL_TOKEN", os.getenv("WINDOWS_CONTROL_TOKEN", "")).strip()
 _LAUNCHD_DOMAIN = f"gui/{os.getuid()}"
 _STOP_WAIT_SEC = float(os.getenv("MACBOOK_SERVICE_STOP_WAIT_SEC", "30"))
@@ -41,6 +42,7 @@ SERVICE_PORTS: list[tuple[str, int]] = [
     ("Ollama", int(os.getenv("METRICS_OLLAMA_PORT", "11434"))),
     ("임베딩", int(os.getenv("METRICS_EMBED_PORT", "8420"))),
     ("SigLIP", int(os.getenv("METRICS_SIGLIP_PORT", "8437"))),
+    ("NIMA", int(os.getenv("METRICS_NIMA_PORT", "8428"))),
 ]
 
 _SERVICE_CONFIG: dict[str, dict[str, object]] = {
@@ -72,6 +74,10 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
             "MACBOOK_EMBED_PLIST",
             str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-gpu.plist"),
         ).strip(),
+        "run_script": os.getenv(
+            "MACBOOK_EMBED_RUN_SCRIPT",
+            str(_MACBOOK_GPU_SCRIPTS / "run_embed.sh"),
+        ).strip(),
     },
     "siglip": {
         "label": "SigLIP",
@@ -81,14 +87,23 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
             "MACBOOK_SIGLIP_PLIST",
             str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-siglip.plist"),
         ).strip(),
+        "run_script": os.getenv(
+            "MACBOOK_SIGLIP_RUN_SCRIPT",
+            str(_MACBOOK_GPU_SCRIPTS / "run_siglip.sh"),
+        ).strip(),
     },
     "nima": {
         "label": "NIMA",
         "port": int(os.getenv("METRICS_SIGLIP_PORT", "8437")),
+        "metrics_port": int(os.getenv("METRICS_NIMA_PORT", "8428")),
         "launchd": os.getenv("MACBOOK_SIGLIP_LAUNCHD", "com.eungsang.macbook-siglip").strip(),
         "plist": os.getenv(
             "MACBOOK_SIGLIP_PLIST",
             str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-siglip.plist"),
+        ).strip(),
+        "run_script": os.getenv(
+            "MACBOOK_SIGLIP_RUN_SCRIPT",
+            str(_MACBOOK_GPU_SCRIPTS / "run_siglip.sh"),
         ).strip(),
         "note": "SigLIP(8437) 프록시",
     },
@@ -186,11 +201,18 @@ def _launchd_loaded(label: str) -> bool:
     return proc.returncode == 0
 
 
-def _launchd_bootstrap(label: str, plist: str) -> bool:
+def _launchd_bootstrap(label: str, plist: str) -> tuple[bool, Optional[str]]:
     if not label or not plist or not Path(plist).is_file():
-        return False
+        return False, "launchd plist가 없습니다. install_*_launchd.sh 를 실행하세요."
+
     subprocess.run(
         ["launchctl", "bootout", _launchd_target(label)],
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    subprocess.run(
+        ["launchctl", "bootout", _LAUNCHD_DOMAIN, plist],
         capture_output=True,
         timeout=10,
         check=False,
@@ -203,9 +225,10 @@ def _launchd_bootstrap(label: str, plist: str) -> bool:
         check=False,
     )
     if proc.returncode != 0:
-        return False
+        detail = (proc.stderr or proc.stdout or "").strip()
+        return False, detail or f"launchctl bootstrap failed (exit {proc.returncode})"
     subprocess.run(["launchctl", "enable", _launchd_target(label)], capture_output=True, check=False)
-    return True
+    return True, None
 
 
 def _launchd_kickstart(label: str) -> bool:
@@ -284,6 +307,21 @@ def _start_ollama_app(app_name: str) -> bool:
         return False
     proc = subprocess.run(["open", "-a", app_name], capture_output=True, text=True, timeout=15, check=False)
     return proc.returncode == 0
+
+
+def _start_via_run_script(run_script: str) -> bool:
+    """launchd bootstrap 실패 시 run_*.sh 로 직접 기동 (Ollama open -a 폴백과 동일 패턴)."""
+    path = Path(run_script)
+    if not path.is_file():
+        return False
+    subprocess.Popen(
+        ["/bin/bash", str(path)],
+        cwd=str(_REPO_ROOT),
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return True
 
 
 def _launchd_bootout(label: str, plist: str = "") -> bool:
@@ -380,24 +418,37 @@ def _start_one_service(key: str) -> dict:
 
     started = False
     method = ""
-    if not _launchd_loaded(launchd) and _launchd_bootstrap(launchd, plist):
-        method = f"bootstrap:{launchd}"
-        started = True
+    boot_ok, boot_err = (False, None)
+    if not _launchd_loaded(launchd):
+        boot_ok, boot_err = _launchd_bootstrap(launchd, plist)
+        if boot_ok:
+            method = f"bootstrap:{launchd}"
+            started = True
     elif _launchd_kickstart(launchd):
+        method = f"kickstart:{launchd}"
+        started = True
+
+    if not started and _launchd_kickstart(launchd):
         method = f"kickstart:{launchd}"
         started = True
 
     if not started:
         start_app = str(config.get("start_app") or "")
+        run_script = str(config.get("run_script") or "")
         if key == "ollama" and start_app and _start_ollama_app(start_app):
             method = f"open:{start_app}"
             started = True
+        elif run_script and _start_via_run_script(run_script):
+            method = f"script:{run_script}"
+            started = True
         else:
+            detail = boot_err or "launchd 기동에 실패했습니다."
+            hint = "install_*_launchd.sh 를 실행하거나 run_embed.sh / run_siglip.sh 를 확인하세요."
             return {
                 "service": key,
                 "label": label,
                 "ok": False,
-                "error": "launchd 기동에 실패했습니다. install_*_launchd.sh 를 확인하세요.",
+                "error": f"{detail} ({hint})",
                 "port": port,
             }
 
@@ -545,6 +596,7 @@ def _services() -> list[dict]:
         "Ollama": "/api/tags",
         "임베딩": "/health",
         "SigLIP": "/health",
+        "NIMA": "/health",
     }
     for label, port in SERVICE_PORTS:
         started = time.perf_counter()
