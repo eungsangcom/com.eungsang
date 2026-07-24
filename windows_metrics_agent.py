@@ -36,13 +36,15 @@ _REPO_ROOT = Path(__file__).resolve().parent
 _CONTROL_TOKEN = os.getenv("WINDOWS_CONTROL_TOKEN", "").strip()
 _START_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_START_WAIT_SEC", "45"))
 _STOP_WAIT_SEC = float(os.getenv("WINDOWS_SERVICE_STOP_WAIT_SEC", "30"))
-_EMBED_START_WAIT_SEC = float(os.getenv("WINDOWS_EMBED_START_WAIT_SEC", "180"))
+_EMBED_START_WAIT_SEC = float(os.getenv("WINDOWS_EMBED_START_WAIT_SEC", "300"))
 _OLLAMA_START_WAIT_SEC = float(os.getenv("WINDOWS_OLLAMA_START_WAIT_SEC", "45"))
 _SERVICES_DIR = _REPO_ROOT / "scripts" / "windows_metrics_agent" / "services"
+_METRICS_AGENT_DIR = _REPO_ROOT / "scripts" / "windows_metrics_agent"
 _EMBED_START_BAT = _SERVICES_DIR / "start_embedding.bat"
 _SIGLIP_START_BAT = _SERVICES_DIR / "start_siglip.bat"
 _NIMA_START_BAT = _SERVICES_DIR / "start_nima.bat"
-_AGENT_CONFIG_CMD = _SERVICES_DIR / "config.cmd"
+_AGENT_CONFIG_CMD = _METRICS_AGENT_DIR / "config.cmd"
+_KURE_EMBED_LOG = _SERVICES_DIR / "logs" / "kure_embed.log"
 
 _GPU_CONFIG_DEFAULTS: dict[str, dict[str, str]] = {
     "siglip": {
@@ -442,9 +444,47 @@ def _ensure_gpu_service_config(key: str) -> bool:
     return True
 
 
+def _ensure_embedding_config() -> bool:
+    """KURE 임베딩 — scripts/windows_metrics_agent/config.cmd (start_embedding.bat 과 동일 경로)."""
+    py = _read_py_from_agent_config()
+    if py and Path(py).is_file():
+        return True
+
+    py = _resolve_gpu_python()
+    if not py:
+        return False
+
+    if not _AGENT_CONFIG_CMD.is_file():
+        _METRICS_AGENT_DIR.mkdir(parents=True, exist_ok=True)
+        _AGENT_CONFIG_CMD.write_text(f'@echo off\r\nset "PY={py}"\r\n', encoding="ascii")
+    return True
+
+
+def _tail_log_file(path: Path, *, max_lines: int = 10) -> str:
+    if not path.is_file():
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return ""
+    tail = [line.strip() for line in lines[-max_lines:] if line.strip()]
+    return "\n".join(tail)
+
+
 def _bootstrap_gpu_services() -> dict:
     results: list[dict] = []
     ok = True
+    if _ensure_embedding_config():
+        results.append({"service": "embedding", "label": "임베딩", "ok": True, "configured": True})
+    else:
+        ok = False
+        results.append({
+            "service": "embedding",
+            "label": "임베딩",
+            "ok": False,
+            "error": "GPU Python/config.cmd 를 찾지 못했습니다. services\\install_kure_deps.ps1 를 실행하세요.",
+        })
+
     for key in ("siglip", "nima"):
         label = str(_SERVICE_CONFIG[key]["label"])
         if _ensure_gpu_service_config(key):
@@ -547,6 +587,15 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
             "port": port,
         }
 
+    if key == "embedding" and not _ensure_embedding_config():
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "error": "GPU Python/config.cmd 를 찾지 못했습니다. services\\install_kure_deps.ps1 를 실행하세요.",
+            "port": port,
+        }
+
     if _port_open(port):
         return {
             "service": key,
@@ -598,6 +647,17 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
             "port": port,
         }
 
+    error = (
+        f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다."
+    )
+    if key == "embedding":
+        error += " services\\logs\\kure_embed.log 를 확인하세요."
+        log_tail = _tail_log_file(_KURE_EMBED_LOG)
+        if log_tail:
+            error += f"\n최근 로그:\n{log_tail}"
+    elif key == "siglip":
+        error += " scripts\\siglip_server\\logs\\server.log 와 services\\logs\\siglip.log 를 확인하세요."
+
     return {
         "service": key,
         "label": label,
@@ -605,11 +665,7 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
         "started": True,
         "method": method,
         "port": port,
-        "error": f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다. services\\logs\\kure_embed.log 를 확인하세요."
-        if key == "embedding"
-        else f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다. scripts\\siglip_server\\logs\\server.log 와 services\\logs\\siglip.log 를 확인하세요."
-        if key == "siglip"
-        else f"{label} 기동을 시도했지만 {int(_service_start_wait_sec(key))}초 내 포트 {port} 응답이 없습니다.",
+        "error": error,
     }
 
 
