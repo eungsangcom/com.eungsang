@@ -311,12 +311,19 @@ def _launchd_labels_for_config(config: dict[str, object]) -> list[str]:
     return [launchd] if launchd else []
 
 
+def _launchd_plist_for_label(label: str, primary: str, primary_plist: str) -> str:
+    if label == primary:
+        return primary_plist
+    default = Path.home() / "Library/LaunchAgents" / f"{label}.plist"
+    return str(default) if default.is_file() else ""
+
+
 def _launchd_bootout_all(config: dict[str, object]) -> bool:
     plist = str(config.get("plist") or "")
     primary = str(config.get("launchd") or "")
     ok = True
     for label in _launchd_labels_for_config(config):
-        label_plist = plist if label == primary else ""
+        label_plist = _launchd_plist_for_label(label, primary, plist)
         ok = _launchd_bootout(label, label_plist) and ok
     return ok
 
