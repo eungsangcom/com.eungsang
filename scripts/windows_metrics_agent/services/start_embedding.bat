@@ -49,8 +49,14 @@ echo [%date% %time%] Starting KURE embed with %PY% >> "%LOG_FILE%"
 
 "%PY%" -c "import sentence_transformers, fastapi, uvicorn; print('deps ok')" >> "%LOG_FILE%" 2>&1
 if errorlevel 1 (
-    echo [%date% %time%] ERROR: sentence_transformers 없음. install_kure_deps.ps1 먼저 실행 >> "%LOG_FILE%"
-    exit /b 1
+    echo [%date% %time%] sentence_transformers missing — pip install >> "%LOG_FILE%"
+    "%PY%" -m pip install --upgrade pip >> "%LOG_FILE%" 2>&1
+    "%PY%" -m pip install fastapi "uvicorn[standard]" sentence-transformers >> "%LOG_FILE%" 2>&1
+    "%PY%" -c "import sentence_transformers, fastapi, uvicorn; print('deps ok')" >> "%LOG_FILE%" 2>&1
+    if errorlevel 1 (
+        echo [%date% %time%] ERROR: sentence_transformers install failed. Run install_kure_deps.ps1 >> "%LOG_FILE%"
+        exit /b 1
+    )
 )
 
 start "KureEmbed" /MIN cmd /c ""%PY%" "%EMBED_PY%" >> "%LOG_FILE%" 2>&1"
