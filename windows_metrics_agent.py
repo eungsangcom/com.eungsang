@@ -45,6 +45,8 @@ _SIGLIP_START_BAT = _SERVICES_DIR / "start_siglip.bat"
 _NIMA_START_BAT = _SERVICES_DIR / "start_nima.bat"
 _AGENT_CONFIG_CMD = _METRICS_AGENT_DIR / "config.cmd"
 _KURE_EMBED_LOG = _SERVICES_DIR / "logs" / "kure_embed.log"
+_NIMA_START_LOG = _SERVICES_DIR / "logs" / "nima.log"
+_NIMA_SERVER_LOG = _REPO_ROOT / "scripts" / "nima_server" / "logs" / "server.log"
 
 _GPU_CONFIG_DEFAULTS: dict[str, dict[str, str]] = {
     "siglip": {
@@ -492,6 +494,64 @@ def _embedding_deps_ok(py: str) -> bool:
         return False
 
 
+def _nima_deps_ok(py: str) -> bool:
+    try:
+        proc = subprocess.run(
+            [py, "-c", "import pyiqa, fastapi, uvicorn, torch, PIL"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _ensure_nima_deps(py: str, *, install: bool = False) -> tuple[bool, str | None]:
+    if _nima_deps_ok(py):
+        return True, None
+    if not install:
+        return False, "pyiqa 가 설치되어 있지 않습니다."
+
+    req = _REPO_ROOT / "scripts" / "nima_server" / "requirements.txt"
+    _NIMA_START_LOG.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _NIMA_START_LOG.open("a", encoding="utf-8") as log:
+        log.write(f"\n[{stamp}] Installing NIMA deps via pip ({py})...\n")
+
+    try:
+        subprocess.run(
+            [py, "-m", "pip", "install", "--upgrade", "pip"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        cmd = [py, "-m", "pip", "install", "fastapi", "uvicorn[standard]", "python-multipart", "Pillow", "timm", "pyiqa"]
+        if req.is_file():
+            cmd = [py, "-m", "pip", "install", "-r", str(req)]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "pip install failed")[:500]
+            with _NIMA_START_LOG.open("a", encoding="utf-8") as log:
+                log.write(err + "\n")
+            return False, err
+        if not _nima_deps_ok(py):
+            return False, "pip install 후에도 NIMA import 검증에 실패했습니다."
+        with _NIMA_START_LOG.open("a", encoding="utf-8") as log:
+            log.write(f"[{stamp}] NIMA deps install ok\n")
+        return True, None
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+
+
 def _ensure_embedding_deps(py: str, *, install: bool = False) -> tuple[bool, str | None]:
     if _embedding_deps_ok(py):
         return True, None
@@ -687,6 +747,27 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
                 "port": port,
             }
 
+    if key == "nima":
+        py = _resolve_gpu_python()
+        if not py:
+            return {
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": "GPU Python 경로를 찾지 못했습니다.",
+                "port": port,
+            }
+        deps_ok, deps_err = _ensure_nima_deps(py, install=wait)
+        if not deps_ok:
+            hint = "설비 담당에게 \"윈도우 니마 해결해줘\"를 요청하면 의존성 설치 후 재기동합니다."
+            return {
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": f"{deps_err or 'pyiqa 가 없습니다.'} {hint}",
+                "port": port,
+            }
+
     if _port_open(port):
         return {
             "service": key,
@@ -748,6 +829,13 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
             error += f"\n최근 로그:\n{log_tail}"
     elif key == "siglip":
         error += " scripts\\siglip_server\\logs\\server.log 와 services\\logs\\siglip.log 를 확인하세요."
+    elif key == "nima":
+        error += " scripts\\nima_server\\logs\\server.log 와 services\\logs\\nima.log 를 확인하세요."
+        for log_path in (_NIMA_SERVER_LOG, _NIMA_START_LOG):
+            log_tail = _tail_log_file(log_path)
+            if log_tail:
+                error += f"\n최근 로그 ({log_path.name}):\n{log_tail}"
+                break
 
     return {
         "service": key,
@@ -772,7 +860,8 @@ def _service_start_wait_sec(key: str) -> float:
 
 def _start_services(service: str, *, wait: bool = True) -> dict:
     keys = _resolve_service_keys(service)
-    results = _run_service_actions(lambda key: _start_one_service(key, wait=wait), keys)
+    # GPU VRAM 경합 방지 — all/다중 기동은 순차 실행 (임베딩→siglip→nima 순)
+    results = [_start_one_service(key, wait=wait) for key in keys]
     ok = all(item.get("ok") for item in results)
     return {"ok": ok, "results": results}
 
