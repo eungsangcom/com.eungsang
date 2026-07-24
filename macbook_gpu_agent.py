@@ -429,6 +429,35 @@ def _service_start_wait_sec(key: str) -> float:
     return waits.get(key, _START_WAIT_SEC)
 
 
+def _service_health_path(key: str) -> str:
+    if key == "ollama":
+        return "/api/tags"
+    return "/health"
+
+
+def _service_health_reachable(key: str, port: int) -> bool:
+    """TCP 포트만이 아니라 서비스 health 로 확인 (NIMA 는 SigLIP 8437 과 분리)."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    path = _service_health_path(key)
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=1.5) as res:
+            if res.status >= 500:
+                return False
+            if key != "nima":
+                return True
+            body = res.read()
+            if not body:
+                return False
+            payload = json.loads(body.decode("utf-8"))
+            model = str(payload.get("model") or "").lower()
+            return "nima" in model
+    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
+        return False
+
+
 def _start_one_service(key: str) -> dict:
     config = _SERVICE_CONFIG.get(key)
     if not config:
@@ -449,7 +478,7 @@ def _start_one_service(key: str) -> dict:
             "port": port,
         }
 
-    if _port_open(port):
+    if _service_health_reachable(key, port):
         return {
             "service": key,
             "label": label,
@@ -494,7 +523,7 @@ def _start_one_service(key: str) -> dict:
                 "port": port,
             }
 
-    if _wait_port(port, timeout_sec=_service_start_wait_sec(key)):
+    if _wait_port(port, timeout_sec=_service_start_wait_sec(key)) and _service_health_reachable(key, port):
         return {
             "service": key,
             "label": label,
