@@ -15,10 +15,28 @@ if exist "%CONFIG_CMD%" (
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 if not defined PY (
+    if exist "C:\ProgramData\anaconda3\envs\artimuse\python.exe" (
+        set "PY=C:\ProgramData\anaconda3\envs\artimuse\python.exe"
+    ) else if exist "C:\ProgramData\anaconda3\python.exe" (
+        set "PY=C:\ProgramData\anaconda3\python.exe"
+    ) else if exist "%ProgramData%\Miniconda3\envs\artimuse\python.exe" (
+        set "PY=%ProgramData%\Miniconda3\envs\artimuse\python.exe"
+    ) else if exist "%ProgramData%\Miniconda3\python.exe" (
+        set "PY=%ProgramData%\Miniconda3\python.exe"
+    )
+)
+
+if not defined PY (
     echo [%date% %time%] ERROR: %CONFIG_CMD% 에 PY=conda python 경로가 필요합니다. >> "%LOG_FILE%"
     echo 예: set "PY=C:\ProgramData\anaconda3\envs\artimuse\python.exe" >> "%LOG_FILE%"
     echo 1회 설치: services\install_kure_deps.ps1 >> "%LOG_FILE%"
     exit /b 1
+)
+
+if not exist "%CONFIG_CMD%" (
+    >"%CONFIG_CMD%" echo @echo off
+    >>"%CONFIG_CMD%" echo set "PY=%PY%"
+    echo [%date% %time%] Created %CONFIG_CMD% with PY=%PY% >> "%LOG_FILE%"
 )
 
 if not exist "%EMBED_PY%" (
