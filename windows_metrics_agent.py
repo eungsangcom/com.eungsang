@@ -21,6 +21,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -592,6 +593,50 @@ def _ensure_embedding_deps(py: str, *, install: bool = False) -> tuple[bool, str
         return False, str(exc)
 
 
+def _run_install_service_tasks_script() -> dict:
+    """작업 스케줄러 부팅 정책 — SigLIP/NIMA 로그온 ON, 임베딩 수동 전용."""
+    tasks_script = _SERVICES_DIR / "install_service_tasks.ps1"
+    if sys.platform != "win32":
+        return {"service": "tasks", "label": "작업 스케줄러", "ok": True, "skipped": True}
+    if not tasks_script.is_file():
+        return {
+            "service": "tasks",
+            "label": "작업 스케줄러",
+            "ok": False,
+            "error": f"install_service_tasks.ps1 not found: {tasks_script}",
+        }
+    try:
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(tasks_script),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+            cwd=str(_SERVICES_DIR),
+        )
+        tasks_ok = proc.returncode == 0
+        detail = (proc.stderr or proc.stdout or "").strip()
+        return {
+            "service": "tasks",
+            "label": "작업 스케줄러",
+            "ok": tasks_ok,
+            "error": None if tasks_ok else (detail[:500] or "install_service_tasks.ps1 실패"),
+        }
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"service": "tasks", "label": "작업 스케줄러", "ok": False, "error": str(exc)}
+
+
+def _apply_gpu_boot_policy() -> dict:
+    return _run_install_service_tasks_script()
+
+
 def _bootstrap_gpu_services() -> dict:
     results: list[dict] = []
     ok = True
@@ -628,37 +673,33 @@ def _bootstrap_gpu_services() -> dict:
                 "error": "GPU Python/config.cmd 를 찾지 못했습니다. bootstrap_gpu_config.ps1 를 실행하세요.",
             })
 
-    tasks_script = _SERVICES_DIR / "install_service_tasks.ps1"
-    if sys.platform == "win32" and tasks_script.is_file():
-        try:
-            proc = subprocess.run(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    str(tasks_script),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                check=False,
-                cwd=str(_SERVICES_DIR),
-            )
-            tasks_ok = proc.returncode == 0
-            ok = ok and tasks_ok
-            results.append({
-                "service": "tasks",
-                "label": "작업 스케줄러",
-                "ok": tasks_ok,
-                "error": None if tasks_ok else (proc.stderr or proc.stdout or "install_service_tasks.ps1 실패")[:500],
-            })
-        except (OSError, subprocess.SubprocessError) as exc:
-            ok = False
-            results.append({"service": "tasks", "label": "작업 스케줄러", "ok": False, "error": str(exc)})
+    tasks_result = _run_install_service_tasks_script()
+    if not tasks_result.get("skipped"):
+        ok = ok and bool(tasks_result.get("ok"))
+        results.append(tasks_result)
 
     return {"ok": ok, "results": results}
+
+
+def _schedule_gpu_boot_policy_on_startup() -> None:
+    if sys.platform != "win32":
+        return
+    if os.getenv("WINDOWS_SKIP_BOOT_POLICY", "").strip().lower() in ("1", "true", "yes"):
+        return
+
+    def _run() -> None:
+        result = _apply_gpu_boot_policy()
+        if result.get("skipped"):
+            return
+        if result.get("ok"):
+            print("[metrics-agent] GPU boot policy applied (SigLIP/NIMA logon ON, embedding manual)", flush=True)
+        else:
+            print(
+                f"[metrics-agent] GPU boot policy failed: {result.get('error') or 'unknown'}",
+                flush=True,
+            )
+
+    threading.Thread(target=_run, name="gpu-boot-policy", daemon=True).start()
 
 
 def _start_via_task(task_name: str) -> bool:
@@ -1055,6 +1096,21 @@ def bootstrap_gpu_services(
 ) -> dict:
     _assert_control_auth(authorization)
     return _bootstrap_gpu_services()
+
+
+@app.post("/services/apply-boot-policy")
+def apply_gpu_boot_policy(
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """로그온 부팅 정책 재적용 — SigLIP/NIMA 자동, 임베딩 수동."""
+    _assert_control_auth(authorization)
+    result = _apply_gpu_boot_policy()
+    return {"ok": bool(result.get("ok")), **result}
+
+
+@app.on_event("startup")
+def _on_metrics_agent_startup() -> None:
+    _schedule_gpu_boot_policy_on_startup()
 
 
 @app.post("/services/run-task")

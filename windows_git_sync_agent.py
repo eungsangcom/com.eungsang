@@ -288,6 +288,72 @@ def _start_metrics_agent(*, force_restart: bool = False) -> dict:
     }
 
 
+def _apply_gpu_boot_policy() -> dict | None:
+    """윈도우 GPU 부팅 정책 — SigLIP/NIMA 로그온 ON, 임베딩 수동 전용."""
+    if sys.platform != "win32":
+        return None
+    script = REPO_ROOT / "scripts" / "windows_metrics_agent" / "services" / "install_service_tasks.ps1"
+    if not script.is_file():
+        return {"ok": False, "error": f"install_service_tasks.ps1 not found: {script}"}
+    try:
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+            cwd=str(script.parent),
+        )
+        detail = (proc.stderr or proc.stdout or "").strip()
+        ok = proc.returncode == 0
+        info = {
+            "ok": ok,
+            "step": "gpu_boot_policy",
+            "error": None if ok else (detail[:500] or "install_service_tasks.ps1 failed"),
+        }
+        logger.info("gpu boot policy: %s", info)
+        return info
+    except (OSError, subprocess.SubprocessError) as exc:
+        info = {"ok": False, "step": "gpu_boot_policy", "error": str(exc)}
+        logger.warning("gpu boot policy failed: %s", exc)
+        return info
+
+
+def _apply_gpu_boot_policy_if_needed(previous: str, after: str) -> dict | None:
+    if previous == after:
+        return None
+    changed = _git(["diff", "--name-only", previous, after], check=False).stdout
+    markers = (
+        "install_service_tasks.ps1",
+        "start_siglip.bat",
+        "start_nima.bat",
+        "start_embedding.bat",
+        "start_ollama.bat",
+    )
+    if not any(marker in changed for marker in markers):
+        return None
+    return _apply_gpu_boot_policy()
+
+
+def _schedule_gpu_boot_policy_on_startup() -> None:
+    if sys.platform != "win32":
+        return
+    if os.getenv("WINDOWS_SKIP_BOOT_POLICY", "").strip().lower() in ("1", "true", "yes"):
+        return
+
+    def _run() -> None:
+        _apply_gpu_boot_policy()
+
+    threading.Thread(target=_run, name="gpu-boot-policy", daemon=True).start()
+
+
 def _restart_metrics_agent_if_needed(previous: str, after: str) -> dict | None:
     if previous == after:
         return None
@@ -375,6 +441,7 @@ def sync_repo(*, reason: str = "poll", force: bool = False) -> dict:
 
         after = _git(["rev-parse", "HEAD"]).stdout.strip()
         restart_info = _restart_metrics_agent_if_needed(local, after)
+        boot_policy_info = _apply_gpu_boot_policy_if_needed(local, after)
         result = {
             "ok": True,
             "changed": True,
@@ -386,6 +453,8 @@ def sync_repo(*, reason: str = "poll", force: bool = False) -> dict:
         }
         if restart_info:
             result["metricsAgent"] = restart_info
+        if boot_policy_info:
+            result["gpuBootPolicy"] = boot_policy_info
         _save_state(result)
         logger.info("sync done %s -> %s", local[:7], after[:7])
         return result
@@ -565,6 +634,7 @@ def main() -> None:
     )
     # first sync before serving
     sync_repo(reason="startup")
+    _schedule_gpu_boot_policy_on_startup()
     threading.Thread(target=_poll_loop, name="git-sync-poll", daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
 

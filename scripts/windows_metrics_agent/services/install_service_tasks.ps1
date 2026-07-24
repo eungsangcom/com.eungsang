@@ -110,7 +110,11 @@ function Register-ManualTask {
 
     $Action = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$BatPath`"" -WorkingDirectory $ScriptDir
     $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+    $Settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -ExecutionTimeLimit ([TimeSpan]::Zero)
 
     try {
         Register-ScheduledTask `
@@ -121,7 +125,11 @@ function Register-ManualTask {
             -Description $Description `
             -Force `
             -ErrorAction Stop | Out-Null
-        Write-Host "Registered (manual): $Name"
+        $registered = Get-ScheduledTask -TaskName $Name -ErrorAction Stop
+        if ($registered.Triggers -and $registered.Triggers.Count -gt 0) {
+            throw "$Name still has $($registered.Triggers.Count) automatic trigger(s) after manual registration"
+        }
+        Write-Host "Registered (manual, no logon trigger): $Name"
     } catch {
         Write-Warning "Could not register $Name : $($_.Exception.Message)"
         Write-Host "  Manual start: Start-ScheduledTask -TaskName '$Name'"
@@ -135,7 +143,7 @@ if ($Remove) {
     exit 0
 }
 
-Write-Host "==> Logon boot ON: Ollama, SigLIP, NIMA (interactive user — conda/CUDA PATH)"
+Write-Host "==> Logon boot ON: SigLIP, NIMA (+ Ollama) — interactive user, conda/CUDA PATH"
 Write-Host "    Run bootstrap_gpu_config.ps1 first if config.cmd is missing."
 foreach ($task in $BootTasks) {
     Register-LogonBootTask -Name $task.Name -BatPath $task.Bat -Description $task.Description -DelaySec $task.Delay
