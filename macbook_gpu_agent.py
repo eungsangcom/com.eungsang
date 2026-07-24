@@ -78,6 +78,7 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
             "MACBOOK_EMBED_RUN_SCRIPT",
             str(_MACBOOK_GPU_SCRIPTS / "run_embed.sh"),
         ).strip(),
+        "stop_pgrep": ["windows_kure_embed_server.py", "run_embed.sh"],
     },
     "siglip": {
         "label": "SigLIP",
@@ -91,21 +92,21 @@ _SERVICE_CONFIG: dict[str, dict[str, object]] = {
             "MACBOOK_SIGLIP_RUN_SCRIPT",
             str(_MACBOOK_GPU_SCRIPTS / "run_siglip.sh"),
         ).strip(),
+        "stop_pgrep": ["siglip_server.py", "run_siglip.sh"],
     },
     "nima": {
         "label": "NIMA",
-        "port": int(os.getenv("METRICS_SIGLIP_PORT", "8437")),
-        "metrics_port": int(os.getenv("METRICS_NIMA_PORT", "8428")),
-        "launchd": os.getenv("MACBOOK_SIGLIP_LAUNCHD", "com.eungsang.macbook-siglip").strip(),
+        "port": int(os.getenv("METRICS_NIMA_PORT", "8428")),
+        "launchd": os.getenv("MACBOOK_NIMA_LAUNCHD", "com.eungsang.macbook-nima").strip(),
         "plist": os.getenv(
-            "MACBOOK_SIGLIP_PLIST",
-            str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-siglip.plist"),
+            "MACBOOK_NIMA_PLIST",
+            str(Path.home() / "Library/LaunchAgents/com.eungsang.macbook-nima.plist"),
         ).strip(),
         "run_script": os.getenv(
-            "MACBOOK_SIGLIP_RUN_SCRIPT",
-            str(_MACBOOK_GPU_SCRIPTS / "run_siglip.sh"),
+            "MACBOOK_NIMA_RUN_SCRIPT",
+            str(_MACBOOK_GPU_SCRIPTS / "run_nima.sh"),
         ).strip(),
-        "note": "SigLIP(8437) 프록시",
+        "stop_pgrep": ["nima_server.py", "run_nima.sh"],
     },
 }
 
@@ -148,19 +149,60 @@ def _wait_port_closed(port: int, *, timeout_sec: float) -> bool:
     return False
 
 
+def _pids_on_port_lsof(port: int) -> list[int]:
+    proc = subprocess.run(
+        ["lsof", "-ti", f"TCP:{port}", "-sTCP:LISTEN"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    pids: list[int] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if line.isdigit():
+            pids.append(int(line))
+    return pids
+
+
+def _pids_by_cmdline_substrings(patterns: list[str] | tuple[str, ...]) -> list[int]:
+    needles = [p for p in patterns if p]
+    if not needles:
+        return []
+    pids: set[int] = set()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+        except (psutil.Error, PermissionError):
+            continue
+        joined = " ".join(str(part) for part in cmdline)
+        if any(needle in joined for needle in needles):
+            pid = proc.info.get("pid")
+            if pid:
+                pids.add(int(pid))
+    return sorted(pids)
+
+
 def _pids_listening_on_port(port: int) -> list[int]:
     pids: set[int] = set()
     try:
         for conn in psutil.net_connections(kind="inet"):
-            laddr = conn.laddr
-            if not laddr or laddr.port != port:
+            try:
+                laddr = conn.laddr
+                if not laddr or laddr.port != port:
+                    continue
+                if conn.status != psutil.CONN_LISTEN:
+                    continue
+                if conn.pid:
+                    pids.add(conn.pid)
+            except (psutil.Error, PermissionError):
                 continue
-            if conn.status != psutil.CONN_LISTEN:
-                continue
-            if conn.pid:
-                pids.add(conn.pid)
     except (psutil.Error, PermissionError):
-        return []
+        pass
+    if not pids:
+        pids.update(_pids_on_port_lsof(port))
     return sorted(pids)
 
 
@@ -443,7 +485,7 @@ def _start_one_service(key: str) -> dict:
             started = True
         else:
             detail = boot_err or "launchd 기동에 실패했습니다."
-            hint = "install_*_launchd.sh 를 실행하거나 run_embed.sh / run_siglip.sh 를 확인하세요."
+            hint = "install_*_launchd.sh 를 실행하거나 run_embed.sh / run_siglip.sh / run_nima.sh 를 확인하세요."
             return {
                 "service": key,
                 "label": label,
@@ -510,7 +552,11 @@ def _stop_one_service(key: str) -> dict:
     killall_names = config.get("stop_killall")
     if isinstance(killall_names, list):
         _killall_processes(killall_names)
-    pids = _pids_listening_on_port(port)
+    pgrep_patterns = config.get("stop_pgrep")
+    cmdline_pids: list[int] = []
+    if isinstance(pgrep_patterns, list):
+        cmdline_pids = _pids_by_cmdline_substrings(pgrep_patterns)
+    pids = sorted(set(_pids_listening_on_port(port)) | set(cmdline_pids))
     killed: list[int] = []
     failed: list[int] = []
     for pid in pids:
@@ -538,6 +584,37 @@ def _stop_one_service(key: str) -> dict:
             "port": port,
             "killedPids": killed,
             "launchdBootout": booted_out,
+        }
+
+    # 포트가 아직 열려 있으면 lsof로 재탐색 후 SIGKILL
+    for pid in _pids_listening_on_port(port):
+        if pid in killed:
+            continue
+        try:
+            psutil.Process(pid).kill()
+            killed.append(pid)
+        except (psutil.Error, OSError):
+            failed.append(pid)
+
+    if _wait_port_closed(port, timeout_sec=10.0):
+        return {
+            "service": key,
+            "label": label,
+            "ok": True,
+            "stopped": True,
+            "port": port,
+            "killedPids": killed,
+            "launchdBootout": booted_out,
+            "forceKill": True,
+        }
+
+    if not killed:
+        return {
+            "service": key,
+            "label": label,
+            "ok": False,
+            "port": port,
+            "error": f"{label} 포트 {port}를 사용하는 프로세스를 찾지 못했습니다.",
         }
 
     return {
