@@ -471,11 +471,81 @@ def _tail_log_file(path: Path, *, max_lines: int = 10) -> str:
     return "\n".join(tail)
 
 
+def _embedding_python() -> str | None:
+    py = _read_py_from_agent_config()
+    if py and Path(py).is_file():
+        return py
+    return _resolve_gpu_python()
+
+
+def _embedding_deps_ok(py: str) -> bool:
+    try:
+        proc = subprocess.run(
+            [py, "-c", "import sentence_transformers, fastapi, uvicorn"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _ensure_embedding_deps(py: str, *, install: bool = False) -> tuple[bool, str | None]:
+    if _embedding_deps_ok(py):
+        return True, None
+    if not install:
+        return False, "sentence_transformers 가 설치되어 있지 않습니다."
+
+    _KURE_EMBED_LOG.parent.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _KURE_EMBED_LOG.open("a", encoding="utf-8") as log:
+        log.write(f"\n[{stamp}] Installing KURE deps via pip ({py})...\n")
+
+    try:
+        subprocess.run(
+            [py, "-m", "pip", "install", "--upgrade", "pip"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        proc = subprocess.run(
+            [py, "-m", "pip", "install", "fastapi", "uvicorn[standard]", "sentence-transformers"],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            check=False,
+        )
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "pip install failed")[:500]
+            with _KURE_EMBED_LOG.open("a", encoding="utf-8") as log:
+                log.write(err + "\n")
+            return False, err
+        if not _embedding_deps_ok(py):
+            return False, "pip install 후에도 import 검증에 실패했습니다."
+        with _KURE_EMBED_LOG.open("a", encoding="utf-8") as log:
+            log.write(f"[{stamp}] KURE deps install ok\n")
+        return True, None
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
+
+
 def _bootstrap_gpu_services() -> dict:
     results: list[dict] = []
     ok = True
-    if _ensure_embedding_config():
-        results.append({"service": "embedding", "label": "임베딩", "ok": True, "configured": True})
+    py = _embedding_python()
+    if _ensure_embedding_config() and py:
+        deps_ok, deps_err = _ensure_embedding_deps(py, install=True)
+        results.append({
+            "service": "embedding",
+            "label": "임베딩",
+            "ok": deps_ok,
+            "configured": True,
+            "error": deps_err,
+        })
+        ok = ok and deps_ok
     else:
         ok = False
         results.append({
@@ -595,6 +665,27 @@ def _start_one_service(key: str, *, wait: bool = True) -> dict:
             "error": "GPU Python/config.cmd 를 찾지 못했습니다. services\\install_kure_deps.ps1 를 실행하세요.",
             "port": port,
         }
+
+    if key == "embedding":
+        py = _embedding_python()
+        if not py:
+            return {
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": "GPU Python 경로를 찾지 못했습니다.",
+                "port": port,
+            }
+        deps_ok, deps_err = _ensure_embedding_deps(py, install=wait)
+        if not deps_ok:
+            hint = "설비 담당에게 \"윈도우 임베딩 해결해줘\"를 요청하면 의존성 설치 후 재기동합니다."
+            return {
+                "service": key,
+                "label": label,
+                "ok": False,
+                "error": f"{deps_err or 'sentence_transformers 가 없습니다.'} {hint}",
+                "port": port,
+            }
 
     if _port_open(port):
         return {
